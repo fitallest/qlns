@@ -5,9 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      // Đặt base là './' để các file tài nguyên (css, js) nhận đường dẫn tương đối.
-      // Điều này giúp web chạy được dù bạn đặt tên repo GitHub là gì.
-      base: './', 
+      // Đã xóa base: './' để deploy lên Vercel/Netlify hoạt động đúng với routing
       server: {
         port: 3000,
         host: '0.0.0.0',
@@ -19,7 +17,6 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
-          // Replaced __dirname with process.cwd() to fix TypeScript error
           '@': path.resolve(process.cwd()), 
         }
       },
