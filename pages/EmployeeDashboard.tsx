@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { User, Appointment, Consultation, Revenue, ProjectProfile, AppointmentStatus, RevenueType, ConsultationType, SupportType } from '../types';
 import { storageService } from '../services/storageService';
 import { Button, Input, Select, Card, Badge, Modal, Combobox } from '../components/ui';
-import { Calendar, MessageSquare, TrendingUp, Plus, Edit, Trash2, Phone, DollarSign, MapPin, Building2, ExternalLink, Clock, Layers, Globe, ChevronRight, Search, FileText, ChevronDown, ChevronUp, History, Layout, MessageCircle, Download, Copy } from 'lucide-react';
+import { Calendar, MessageSquare, TrendingUp, Plus, Edit, Trash2, Phone, DollarSign, MapPin, Building2, ExternalLink, Clock, Layers, Globe, ChevronRight, Search, FileText, ChevronDown, ChevronUp, History, Layout, MessageCircle, Download, Copy, Mail, Briefcase } from 'lucide-react';
 import { VIETNAM_PROVINCES } from '../constants';
 
 interface EmployeeDashboardProps {
@@ -52,6 +52,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
       signDate?: string;
       tempCompany?: string; 
       tempAddress?: string;
+      tempEmail?: string; 
+      tempIndustry?: string; // Added Industry
   }>({});
 
   const [isProjModalOpen, setProjModalOpen] = useState(false);
@@ -118,7 +120,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       companyName: prev.companyName || info.company,
                       addressDetail: prev.addressDetail || info.address,
                       location: prev.location || info.city,
-                      source: prev.source || info.source
+                      source: prev.source || info.source,
+                      email: prev.email || '', 
                   }));
               } else if (type === 'CONS') {
                   setEditingCons(prev => ({
@@ -150,7 +153,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       companyName: prev.companyName || info.company,
                       address: prev.address || info.address,
                       region: prev.region || info.city,
-                      source: prev.source || info.source
+                      source: prev.source || info.source,
+                      industry: prev.industry || '', // Although service might not return industry yet, prepare for it
                   }));
               }
           }
@@ -212,10 +216,12 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       userId: user.id, 
                       customerName: revData.customerName || '', 
                       phone: revData.phone || '', 
-                      companyName: editingRev.tempCompany || '', // Use temp fields
-                      address: editingRev.tempAddress || '',     // Use temp fields
-                      contractValue: finalContractValue, // Use full value
-                      signDate: editingRev.signDate || revData.date // Save Sign Date
+                      email: editingRev.tempEmail || '', 
+                      companyName: editingRev.tempCompany || '', 
+                      address: editingRev.tempAddress || '', 
+                      industry: editingRev.tempIndustry || '', // Save Industry
+                      contractValue: finalContractValue, 
+                      signDate: editingRev.signDate || revData.date 
                   });
               } else {
                   // If project exists but signDate is missing, update it
@@ -381,6 +387,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
               "Mã HĐ": p.contractCode,
               "Khách hàng": p.customerName,
               "Số điện thoại": p.phone,
+              "Email": p.email || '',
               "Công ty/Brand": p.companyName,
               "Lĩnh vực": p.industry,
               "Khu vực": p.region,
@@ -708,6 +715,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                                                   <span className="font-mono font-bold text-blue-600">MÃ HĐ: {p.contractCode}</span>
                                               </div>
                                               <div className="text-xs text-gray-500 flex items-center gap-1"><MapPin size={12}/> {p.region || 'Chưa cập nhật KV'}</div>
+                                              {p.industry && <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5"><Briefcase size={12}/> {p.industry}</div>}
                                          </div>
 
                                          {/* Col 3: Status */}
@@ -748,6 +756,10 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                                                       <div className="space-y-1">
                                                           <label className="text-xs font-bold text-gray-500">Email Khách Hàng</label>
                                                           <input type="text" readOnly value={p.email || ''} className="w-full text-sm border-gray-200 rounded bg-gray-50 text-gray-700 p-2 border" />
+                                                      </div>
+                                                      <div className="space-y-1">
+                                                          <label className="text-xs font-bold text-gray-500">Lĩnh vực kinh doanh</label>
+                                                          <input type="text" readOnly value={p.industry || ''} className="w-full text-sm border-gray-200 rounded bg-gray-50 text-gray-700 p-2 border" />
                                                       </div>
                                                       <div className="space-y-1">
                                                           <label className="text-xs font-bold text-gray-500">Link Zalo Group (Hỗ trợ)</label>
@@ -940,16 +952,30 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                     {/* Extra fields for creating Project Profile */}
                     <div className="grid grid-cols-2 gap-4 border-t border-blue-200 pt-3">
                          <Input 
-                            label="Tên Công ty / Thương hiệu" 
-                            value={editingRev.tempCompany || ''} 
-                            onChange={e => setEditingRev({...editingRev, tempCompany: e.target.value})} 
-                            placeholder="Tự động điền nếu có..." 
+                            label="Email (Tạo hồ sơ)" 
+                            value={editingRev.tempEmail || ''} 
+                            onChange={e => setEditingRev({...editingRev, tempEmail: e.target.value})} 
+                            placeholder="Email liên hệ..." 
                         />
                          <Input 
                             label="Địa chỉ (Tạo hồ sơ)" 
                             value={editingRev.tempAddress || ''} 
                             onChange={e => setEditingRev({...editingRev, tempAddress: e.target.value})} 
                             placeholder="Tự động điền nếu có..." 
+                        />
+                    </div>
+                     <div className="grid grid-cols-2 gap-4 mt-1">
+                        <Input 
+                            label="Tên Công ty / Thương hiệu" 
+                            value={editingRev.tempCompany || ''} 
+                            onChange={e => setEditingRev({...editingRev, tempCompany: e.target.value})} 
+                            placeholder="Tự động điền nếu có..." 
+                        />
+                        <Input 
+                            label="Lĩnh vực kinh doanh" 
+                            value={editingRev.tempIndustry || ''} 
+                            onChange={e => setEditingRev({...editingRev, tempIndustry: e.target.value})} 
+                            placeholder="VD: Spa, Bất động sản..." 
                         />
                     </div>
                 </div>
@@ -978,7 +1004,10 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                     <Input label="Tên Khách hàng" value={editingProj.customerName || ''} onChange={e => setEditingProj({...editingProj, customerName: e.target.value})} />
                     <Input label="Số điện thoại" value={editingProj.phone || ''} onChange={e => setEditingProj({...editingProj, phone: e.target.value})} onBlur={(e) => autofillCustomerInfo(e.target.value, 'PROJ')} />
                 </div>
-                <Input label="Tên Công ty / Thương hiệu" value={editingProj.companyName || ''} onChange={e => setEditingProj({...editingProj, companyName: e.target.value})} />
+                <div className="grid grid-cols-2 gap-4">
+                    <Input label="Email Khách hàng" value={editingProj.email || ''} onChange={e => setEditingProj({...editingProj, email: e.target.value})} placeholder="abc@gmail.com" />
+                    <Input label="Tên Công ty / Thương hiệu" value={editingProj.companyName || ''} onChange={e => setEditingProj({...editingProj, companyName: e.target.value})} />
+                </div>
                 <Input label="Địa chỉ" value={editingProj.address || ''} onChange={e => setEditingProj({...editingProj, address: e.target.value})} />
                 
                 <div className="grid grid-cols-2 gap-4">
