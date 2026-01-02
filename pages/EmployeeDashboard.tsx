@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { User, Appointment, Consultation, Revenue, ProjectProfile, AppointmentStatus, RevenueType, ConsultationType, SupportType } from '../types';
 import { storageService } from '../services/storageService';
 import { Button, Input, Select, Card, Badge, Modal, Combobox } from '../components/ui';
-import { Calendar, MessageSquare, TrendingUp, Plus, Edit, Trash2, Phone, DollarSign, MapPin, Building2, ExternalLink, Clock, Layers, Globe, ChevronRight, Search, FileText, ChevronDown, ChevronUp, History, Layout, MessageCircle, Download } from 'lucide-react';
+import { Calendar, MessageSquare, TrendingUp, Plus, Edit, Trash2, Phone, DollarSign, MapPin, Building2, ExternalLink, Clock, Layers, Globe, ChevronRight, Search, FileText, ChevronDown, ChevronUp, History, Layout, MessageCircle, Download, Copy } from 'lucide-react';
 import { VIETNAM_PROVINCES } from '../constants';
 
 interface EmployeeDashboardProps {
@@ -47,7 +47,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   const [editingCons, setEditingCons] = useState<Partial<Consultation>>({});
 
   const [isRevModalOpen, setRevModalOpen] = useState(false);
-  const [editingRev, setEditingRev] = useState<Partial<Revenue>>({});
+  // Extend editingRev to hold temporary signDate for creating project
+  const [editingRev, setEditingRev] = useState<Partial<Revenue> & { signDate?: string }>({});
 
   const [isProjModalOpen, setProjModalOpen] = useState(false);
   const [editingProj, setEditingProj] = useState<Partial<ProjectProfile>>({});
@@ -84,7 +85,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   };
 
   // --- AUTO FILL CUSTOMER INFO ---
-  const autofillCustomerInfo = async (phone: string, type: 'APP' | 'CONS' | 'PROJ') => {
+  const autofillCustomerInfo = async (phone: string, type: 'APP' | 'CONS' | 'PROJ' | 'REV') => {
       if (!phone || phone.length < 8) return;
       
       try {
@@ -96,21 +97,37 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       customerName: prev.customerName || info.name,
                       companyName: prev.companyName || info.company,
                       addressDetail: prev.addressDetail || info.address,
-                      location: prev.location || info.city
+                      location: prev.location || info.city,
+                      source: prev.source || info.source
                   }));
               } else if (type === 'CONS') {
                   setEditingCons(prev => ({
                       ...prev,
                       customerName: prev.customerName || info.name,
-                      // Consultation often requires less detailed auto-fill, but we can add company if needed
+                      companyName: prev.companyName || info.company,
+                      addressDetail: prev.addressDetail || info.address, 
+                      source: prev.source || info.source
                   }));
+              } else if (type === 'REV') {
+                  setEditingRev(prev => {
+                      const updates: any = {
+                          ...prev,
+                          customerName: prev.customerName || info.name,
+                      };
+                      // Only autofill contract code if user hasn't typed one yet
+                      if (!prev.contractCode && info.contractCode) {
+                          updates.contractCode = info.contractCode;
+                      }
+                      return updates;
+                  });
               } else if (type === 'PROJ') {
                   setEditingProj(prev => ({
                       ...prev,
                       customerName: prev.customerName || info.name,
                       companyName: prev.companyName || info.company,
                       address: prev.address || info.address,
-                      region: prev.region || info.city
+                      region: prev.region || info.city,
+                      source: prev.source || info.source
                   }));
               }
           }
@@ -147,17 +164,88 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   const handleSaveRev = async () => {
       if (!editingRev.contractCode || !editingRev.amountCollected || !editingRev.date) return alert("Thiếu thông tin bắt buộc");
       try {
-          const revData = { ...editingRev, userId: user.id, type: editingRev.type || RevenueType.NEW, isApproved: editingRev.isApproved || false, contractValue: editingRev.contractValue || editingRev.amountCollected } as Revenue;
+          // Determine Contract Value: If entered explicitly use it, otherwise fallback to amount collected (for installments)
+          const finalContractValue = editingRev.contractValue || editingRev.amountCollected;
+
+          const revData = { 
+              ...editingRev, 
+              userId: user.id, 
+              type: editingRev.type || RevenueType.NEW, 
+              isApproved: editingRev.isApproved || false, 
+              contractValue: finalContractValue 
+          } as Revenue;
+          
           if (!revData.id) revData.id = `REV_${Date.now()}`;
+          
           if (editingRev.id) await storageService.updateRevenue(revData, {id: user.id, name: user.name});
           else await storageService.addRevenue(revData, {id: user.id, name: user.name});
           
+          // Logic 1: Create Project if "New" and not exists
           if (revData.type === RevenueType.NEW) {
               const existingProj = projects.find(p => p.contractCode === revData.contractCode);
               if (!existingProj) {
-                  await storageService.addProject({ contractCode: revData.contractCode, userId: user.id, customerName: revData.customerName || '', phone: revData.phone || '', contractValue: revData.contractValue });
+                  await storageService.addProject({ 
+                      contractCode: revData.contractCode, 
+                      userId: user.id, 
+                      customerName: revData.customerName || '', 
+                      phone: revData.phone || '', 
+                      contractValue: finalContractValue, // Use full value
+                      signDate: editingRev.signDate || revData.date // Save Sign Date
+                  });
+              } else {
+                  // If project exists but signDate is missing, update it
+                  if (editingRev.signDate && !existingProj.signDate) {
+                       await storageService.updateProject({ ...existingProj, signDate: editingRev.signDate }, {id: user.id, name: user.name});
+                  }
               }
           }
+
+          // Logic 2: Check for "Completed Contract" (Trinity: NEW + HOSTING + HANDOVER)
+          const currentContractRevs = revenues.filter(r => r.contractCode === revData.contractCode && r.id !== revData.id);
+          const allContractRevs = [...currentContractRevs, revData];
+
+          const hasNew = allContractRevs.some(r => r.type === RevenueType.NEW);
+          const hasHosting = allContractRevs.some(r => r.type === RevenueType.HOSTING);
+          const hasHandover = allContractRevs.some(r => r.type === RevenueType.HANDOVER);
+
+          if (hasNew && hasHosting && hasHandover) {
+              const project = projects.find(p => p.contractCode === revData.contractCode) || { contractCode: revData.contractCode, userId: user.id };
+              if (project.status !== 'Hoàn thành') {
+                  await storageService.updateProject(
+                      { ...project, status: 'Hoàn thành' } as ProjectProfile, 
+                      {id: user.id, name: user.name},
+                      "Tự động hoàn thành do đủ 3 điều kiện (Mới + Hosting + Bàn giao)"
+                  );
+                  
+                  // FIREWORKS EFFECT
+                  if ((window as any).confetti) {
+                      const duration = 3000;
+                      const end = Date.now() + duration;
+                      (function frame() {
+                        (window as any).confetti({
+                          particleCount: 5,
+                          angle: 60,
+                          spread: 55,
+                          origin: { x: 0 },
+                          colors: ['#26ccff', '#a25afd', '#ff5e7e', '#88ff5a', '#fcff42', '#ffa62d', '#ff36ff']
+                        });
+                        (window as any).confetti({
+                          particleCount: 5,
+                          angle: 120,
+                          spread: 55,
+                          origin: { x: 1 },
+                          colors: ['#26ccff', '#a25afd', '#ff5e7e', '#88ff5a', '#fcff42', '#ffa62d', '#ff36ff']
+                        });
+                        if (Date.now() < end) {
+                          requestAnimationFrame(frame);
+                        }
+                      }());
+                  }
+                  
+                  alert(`🎉 CHÚC MỪNG! Hợp đồng ${revData.contractCode} đã hội tụ đủ 3 yếu tố (Ký mới, Hosting, Bàn giao). Dự án đã được đánh dấu HOÀN THÀNH!`);
+              }
+          }
+
           setRevModalOpen(false); loadData();
       } catch (e: any) { alert(e.message); }
   };
@@ -173,6 +261,27 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
       } catch (e: any) { alert(e.message); }
   };
   const handleDeleteProject = async (contractCode: string) => { if (!confirm(`Bạn chắc chắn muốn xóa dự án ${contractCode}?`)) return; await storageService.deleteProject(contractCode, {id: user.id, name: user.name}); setProjModalOpen(false); loadData(); };
+
+  // --- Copy Report Function ---
+  const handleCopyReport = (item: DashboardItem) => {
+      const date = new Date(item.date);
+      const timeStr = `${date.getHours()}h${date.getMinutes().toString().padStart(2, '0')} ${date.getDate()}/${date.getMonth() + 1}`;
+      
+      let text = '';
+      if (item.dataType === 'APP') {
+          const app = item as Appointment;
+          text = `1. Tên KH: ${app.customerName}\n2. Số điện thoại: ${app.phone}\n3. Ngành nghề: ${app.companyName || 'Chưa cập nhật'}\n4. Nguồn: ${app.source || 'Chưa cập nhật'}\n5. Địa điểm: ${app.location || ''} ${app.addressDetail ? '- ' + app.addressDetail : ''}\n6. Thời gian: ${timeStr}\n7. Tình hình: ${app.status}${app.notes ? ', ' + app.notes : ''}\n8. Người liên hệ: ${user.name}`;
+      } else if (item.dataType === 'CONS') {
+          const cons = item as Consultation;
+          text = `NV: ${user.name}\nHỗ trợ: ${cons.supportPersonName || 'Không'}\nThời gian: ${timeStr}\nĐịa điểm: ${cons.addressDetail || 'Chưa cập nhật'}\nKhách hàng: ${cons.customerName} - ${cons.phone}\nNgành: ${cons.companyName || 'Chưa cập nhật'}\nNội dung: ${cons.type}${cons.notes ? ' - ' + cons.notes : ''}`;
+      }
+
+      if (text) {
+          navigator.clipboard.writeText(text);
+          // Simple visual feedback could be added here, using alert for now
+          alert("Đã sao chép nội dung báo cáo!");
+      }
+  };
 
   // --- Statistics Calculation ---
   const currentMonthStart = new Date().toISOString().substring(0, 7);
@@ -309,6 +418,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       </div>
                       <div className="text-right">
                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => handleCopyReport(item)} className="text-gray-400 hover:text-green-600" title="Copy báo cáo Zalo"><Copy size={16}/></button>
                                 {!isViewOnly && <button onClick={() => {setEditingApp(item); setAppModalOpen(true)}} className="text-gray-400 hover:text-blue-600"><Edit size={16}/></button>}
                                 {!isViewOnly && <button onClick={() => handleDeleteApp(item.id)} className="text-gray-400 hover:text-red-600"><Trash2 size={16}/></button>}
                            </div>
@@ -337,6 +447,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       </div>
                       <div className="text-right">
                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => handleCopyReport(item)} className="text-gray-400 hover:text-green-600" title="Copy báo cáo Zalo"><Copy size={16}/></button>
                                 {!isViewOnly && <button onClick={() => {setEditingCons(item); setConsModalOpen(true)}} className="text-gray-400 hover:text-blue-600"><Edit size={16}/></button>}
                                 {!isViewOnly && <button onClick={() => handleDeleteCons(item.id)} className="text-gray-400 hover:text-red-600"><Trash2 size={16}/></button>}
                            </div>
@@ -703,7 +814,10 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                   <Input label="Thời gian hẹn" type="datetime-local" value={editingApp.date || ''} onChange={e => setEditingApp({...editingApp, date: e.target.value})} />
                   <Select label="Trạng thái" options={Object.values(AppointmentStatus).map(s => ({value: s, label: s}))} value={editingApp.status || AppointmentStatus.NEW} onChange={e => setEditingApp({...editingApp, status: e.target.value as AppointmentStatus})} />
               </div>
-              <Combobox label="Tỉnh / Thành phố" value={editingApp.location || ''} onChange={val => setEditingApp({...editingApp, location: val})} options={VIETNAM_PROVINCES} />
+              <div className="grid grid-cols-2 gap-4">
+                  <Combobox label="Tỉnh / Thành phố" value={editingApp.location || ''} onChange={val => setEditingApp({...editingApp, location: val})} options={VIETNAM_PROVINCES} />
+                  <Input label="Nguồn khách hàng" value={editingApp.source || ''} onChange={e => setEditingApp({...editingApp, source: e.target.value})} placeholder="VD: Data, Tự tìm kiếm..." />
+              </div>
               <Input label="Địa chỉ chi tiết" value={editingApp.addressDetail || ''} onChange={e => setEditingApp({...editingApp, addressDetail: e.target.value})} />
               <div className="w-full">
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Ghi chú thêm</label>
@@ -747,13 +861,35 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                   <Input label="Mã Hợp Đồng (Bắt buộc)" value={editingRev.contractCode || ''} onChange={e => setEditingRev({...editingRev, contractCode: e.target.value.toUpperCase()})} placeholder="VD: HĐ001" />
                   <Input label="Ngày thu tiền" type="date" value={editingRev.date ? editingRev.date.substring(0, 10) : ''} onChange={e => setEditingRev({...editingRev, date: e.target.value})} />
               </div>
-              <Input label="Tên khách hàng / Đại diện" value={editingRev.customerName || ''} onChange={e => setEditingRev({...editingRev, customerName: e.target.value})} />
               <div className="grid grid-cols-2 gap-4">
-                  <Select label="Loại doanh thu" options={Object.values(RevenueType).map(t => ({value: t, label: t}))} value={editingRev.type || RevenueType.NEW} onChange={e => setEditingRev({...editingRev, type: e.target.value as RevenueType})} />
-                  <Input label="Số tiền thu (VNĐ)" type="number" value={editingRev.amountCollected || 0} onChange={e => setEditingRev({...editingRev, amountCollected: Number(e.target.value)})} />
+                  <Input label="Số điện thoại" value={editingRev.phone || ''} onChange={e => setEditingRev({...editingRev, phone: e.target.value})} onBlur={(e) => autofillCustomerInfo(e.target.value, 'REV')} placeholder="Nhập để tự điền tên..." />
+                  <Input label="Tên khách hàng / Đại diện" value={editingRev.customerName || ''} onChange={e => setEditingRev({...editingRev, customerName: e.target.value})} />
               </div>
+              <Select label="Loại doanh thu" options={Object.values(RevenueType).map(t => ({value: t, label: t}))} value={editingRev.type || RevenueType.NEW} onChange={e => setEditingRev({...editingRev, type: e.target.value as RevenueType})} />
+              
+              {/* Conditional Inputs for New Contracts */}
+              {editingRev.type === RevenueType.NEW && (
+                <div className="grid grid-cols-2 gap-4 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                    <Input 
+                        label="Tổng giá trị Hợp Đồng" 
+                        type="number" 
+                        value={editingRev.contractValue || ''} 
+                        onChange={e => setEditingRev({...editingRev, contractValue: Number(e.target.value)})} 
+                        placeholder="Tổng giá trị..." 
+                    />
+                     <Input 
+                        label="Ngày ký hợp đồng" 
+                        type="date" 
+                        value={editingRev.signDate || ''} 
+                        onChange={e => setEditingRev({...editingRev, signDate: e.target.value})} 
+                    />
+                </div>
+              )}
+
+              <Input label="Số tiền thu (VNĐ)" type="number" value={editingRev.amountCollected || 0} onChange={e => setEditingRev({...editingRev, amountCollected: Number(e.target.value)})} />
+              
               <div className="bg-yellow-50 p-3 rounded-lg text-xs text-yellow-700">
-                  <b>Lưu ý:</b> Nếu là "Ký mới", hệ thống sẽ tự động tạo một Hồ sơ dự án tương ứng nếu chưa tồn tại. Vui lòng cập nhật chi tiết dự án sau.
+                  <b>Lưu ý:</b> Nếu là "Ký mới", hệ thống sẽ tự động tạo một Hồ sơ dự án tương ứng.
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t mt-4">
                   <Button variant="ghost" onClick={() => setRevModalOpen(false)}>Hủy</Button>
