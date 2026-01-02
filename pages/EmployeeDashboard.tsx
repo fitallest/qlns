@@ -796,15 +796,35 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
 
                                                       {/* Payment Detail List */}
                                                       <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 mt-2">
-                                                          <div className="text-[10px] font-black uppercase text-gray-400 mb-2 border-b border-gray-200 pb-1">CHI TIẾT THU TIỀN</div>
-                                                          <div className="space-y-2 text-xs">
+                                                          <div className="flex justify-between items-center border-b border-gray-200 pb-1 mb-2">
+                                                              <div className="text-[10px] font-black uppercase text-gray-400">CHI TIẾT THU TIỀN</div>
+                                                              <div className="text-[10px] font-bold text-blue-600">Tổng: {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalPaid)}</div>
+                                                          </div>
+                                                          <div className="space-y-1">
                                                               {relatedRevenues.map((r, idx) => (
-                                                                  <div key={r.id} className="flex justify-between items-center">
-                                                                      <span className="text-gray-600 font-medium">Lần {idx + 1} ({r.type}):</span>
-                                                                      <span className="font-bold text-blue-600">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(r.amountCollected)}</span>
+                                                                  <div key={r.id} className={`flex justify-between items-center p-1.5 rounded transition-colors group ${!isViewOnly ? 'hover:bg-white hover:shadow-sm cursor-pointer' : ''}`} onClick={() => { if(!isViewOnly) { setEditingRev(r); setRevModalOpen(true); } }}>
+                                                                      <div className="flex items-center gap-2 overflow-hidden">
+                                                                          <div className={`w-1.5 h-1.5 rounded-full ${r.isApproved ? 'bg-green-500' : 'bg-orange-400'}`}></div>
+                                                                          <span className="text-gray-600 font-medium text-xs truncate">
+                                                                            Lần {idx + 1} <span className="text-gray-400">({r.type})</span>
+                                                                            <span className="hidden sm:inline text-[10px] text-gray-400 ml-1">- {new Date(r.date).toLocaleDateString('vi-VN')}</span>
+                                                                          </span>
+                                                                      </div>
+                                                                      <div className="flex items-center gap-2">
+                                                                          <span className="font-bold text-blue-600 text-xs">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(r.amountCollected)}</span>
+                                                                          {!isViewOnly && (
+                                                                              <button 
+                                                                                onClick={(e) => { e.stopPropagation(); handleDeleteRev(r.id); }}
+                                                                                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
+                                                                                title="Xóa khoản thu"
+                                                                              >
+                                                                                  <Trash2 size={12}/>
+                                                                              </button>
+                                                                          )}
+                                                                      </div>
                                                                   </div>
                                                               ))}
-                                                              {relatedRevenues.length === 0 && <span className="text-gray-400 italic">Chưa có dữ liệu thu tiền</span>}
+                                                              {relatedRevenues.length === 0 && <span className="text-gray-400 italic text-xs block text-center py-2">Chưa có dữ liệu thu tiền</span>}
                                                           </div>
                                                       </div>
                                                   </div>
