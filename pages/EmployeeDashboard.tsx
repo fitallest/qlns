@@ -47,8 +47,12 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   const [editingCons, setEditingCons] = useState<Partial<Consultation>>({});
 
   const [isRevModalOpen, setRevModalOpen] = useState(false);
-  // Extend editingRev to hold temporary signDate for creating project
-  const [editingRev, setEditingRev] = useState<Partial<Revenue> & { signDate?: string }>({});
+  // Extend editingRev to hold temporary fields for creating project
+  const [editingRev, setEditingRev] = useState<Partial<Revenue> & { 
+      signDate?: string;
+      tempCompany?: string; 
+      tempAddress?: string;
+  }>({});
 
   const [isProjModalOpen, setProjModalOpen] = useState(false);
   const [editingProj, setEditingProj] = useState<Partial<ProjectProfile>>({});
@@ -84,6 +88,22 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
       setExpandedProjects(prev => ({ ...prev, [contractCode]: !prev[contractCode] }));
   };
 
+  // Helper: Format Date DD-MM-YYYY
+  const formatDateDisplay = (dateStr?: string) => {
+      if (!dateStr) return '---';
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          const [y, m, d] = dateStr.split('-');
+          return `${d}-${m}-${y}`;
+      }
+      try {
+          const date = new Date(dateStr);
+          if (isNaN(date.getTime())) return dateStr;
+          return `${date.getDate().toString().padStart(2, '0')}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getFullYear()}`;
+      } catch {
+          return dateStr;
+      }
+  };
+
   // --- AUTO FILL CUSTOMER INFO ---
   const autofillCustomerInfo = async (phone: string, type: 'APP' | 'CONS' | 'PROJ' | 'REV') => {
       if (!phone || phone.length < 8) return;
@@ -109,10 +129,13 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       source: prev.source || info.source
                   }));
               } else if (type === 'REV') {
+                  // Fully extract info for Revenue to support Project creation
                   setEditingRev(prev => {
                       const updates: any = {
                           ...prev,
                           customerName: prev.customerName || info.name,
+                          tempCompany: prev.tempCompany || info.company,
+                          tempAddress: prev.tempAddress || info.address
                       };
                       // Only autofill contract code if user hasn't typed one yet
                       if (!prev.contractCode && info.contractCode) {
@@ -189,6 +212,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       userId: user.id, 
                       customerName: revData.customerName || '', 
                       phone: revData.phone || '', 
+                      companyName: editingRev.tempCompany || '', // Use temp fields
+                      address: editingRev.tempAddress || '',     // Use temp fields
                       contractValue: finalContractValue, // Use full value
                       signDate: editingRev.signDate || revData.date // Save Sign Date
                   });
@@ -255,6 +280,12 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
       if (!editingProj.contractCode) return alert("Thiếu mã hợp đồng");
       try {
           const projData = { ...editingProj, userId: user.id } as ProjectProfile;
+          
+          // Logic: If Handover Date is present, set status to "Hoàn thành"
+          if (projData.handoverDate) {
+              projData.status = 'Hoàn thành';
+          }
+          
           const exists = projects.some(p => p.contractCode === editingProj.contractCode);
           if (exists) await storageService.updateProject(projData, {id: user.id, name: user.name}); else await storageService.addProject(projData);
           setProjModalOpen(false); loadData();
@@ -365,6 +396,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
 
       const ws = (window as any).XLSX.utils.json_to_sheet(data);
       const wb = (window as any).XLSX.utils.book_new();
+      (window as any).XLSX.utils.book_append_sheet(wb, ws, "Danh sách dự án");
       (window as any).XLSX.utils.book_append_sheet(wb, ws, "Danh sách dự án");
       (window as any).XLSX.writeFile(wb, `Du_lieu_du_an_${user.id}_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
@@ -750,11 +782,11 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                                                       <div className="grid grid-cols-2 gap-4">
                                                           <div className="space-y-1">
                                                               <label className="text-xs font-bold text-gray-500">Ngày ký</label>
-                                                              <input type="text" readOnly value={p.signDate || p.contractCode.startsWith('HĐ') ? '---' : '---'} className="w-full text-sm border-gray-200 rounded bg-white text-gray-800 p-2 border text-center font-medium" placeholder="DD/MM/YYYY" />
+                                                              <input type="text" readOnly value={formatDateDisplay(p.signDate)} className="w-full text-sm border-gray-200 rounded bg-white text-gray-800 p-2 border text-center font-medium" placeholder="DD/MM/YYYY" />
                                                           </div>
                                                           <div className="space-y-1">
                                                               <label className="text-xs font-bold text-gray-500">Bàn giao</label>
-                                                              <input type="text" readOnly value={p.handoverDate || ''} className="w-full text-sm border-gray-200 rounded bg-white text-gray-800 p-2 border text-center font-medium" />
+                                                              <input type="text" readOnly value={formatDateDisplay(p.handoverDate)} className="w-full text-sm border-gray-200 rounded bg-white text-gray-800 p-2 border text-center font-medium" />
                                                           </div>
                                                       </div>
                                                       <div className="space-y-1">
@@ -869,20 +901,37 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
               
               {/* Conditional Inputs for New Contracts */}
               {editingRev.type === RevenueType.NEW && (
-                <div className="grid grid-cols-2 gap-4 bg-blue-50 p-3 rounded-lg border border-blue-100">
-                    <Input 
-                        label="Tổng giá trị Hợp Đồng" 
-                        type="number" 
-                        value={editingRev.contractValue || ''} 
-                        onChange={e => setEditingRev({...editingRev, contractValue: Number(e.target.value)})} 
-                        placeholder="Tổng giá trị..." 
-                    />
-                     <Input 
-                        label="Ngày ký hợp đồng" 
-                        type="date" 
-                        value={editingRev.signDate || ''} 
-                        onChange={e => setEditingRev({...editingRev, signDate: e.target.value})} 
-                    />
+                <div className="grid grid-cols-1 gap-4 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                    <div className="grid grid-cols-2 gap-4">
+                        <Input 
+                            label="Tổng giá trị Hợp Đồng" 
+                            type="number" 
+                            value={editingRev.contractValue || ''} 
+                            onChange={e => setEditingRev({...editingRev, contractValue: Number(e.target.value)})} 
+                            placeholder="Tổng giá trị..." 
+                        />
+                         <Input 
+                            label="Ngày ký hợp đồng" 
+                            type="date" 
+                            value={editingRev.signDate || ''} 
+                            onChange={e => setEditingRev({...editingRev, signDate: e.target.value})} 
+                        />
+                    </div>
+                    {/* Extra fields for creating Project Profile */}
+                    <div className="grid grid-cols-2 gap-4 border-t border-blue-200 pt-3">
+                         <Input 
+                            label="Tên Công ty / Thương hiệu" 
+                            value={editingRev.tempCompany || ''} 
+                            onChange={e => setEditingRev({...editingRev, tempCompany: e.target.value})} 
+                            placeholder="Tự động điền nếu có..." 
+                        />
+                         <Input 
+                            label="Địa chỉ (Tạo hồ sơ)" 
+                            value={editingRev.tempAddress || ''} 
+                            onChange={e => setEditingRev({...editingRev, tempAddress: e.target.value})} 
+                            placeholder="Tự động điền nếu có..." 
+                        />
+                    </div>
                 </div>
               )}
 
