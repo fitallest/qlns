@@ -5,7 +5,6 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      // Đã xóa base: './' để deploy lên Vercel/Netlify hoạt động đúng với routing
       server: {
         port: 3000,
         host: '0.0.0.0',
@@ -17,7 +16,7 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
-          '@': path.resolve(process.cwd()), 
+          '@': path.resolve('.'), 
         }
       },
       build: {
