@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Appointment, Consultation, Revenue, ProjectProfile, AppointmentStatus, RevenueType, ConsultationType, SupportType } from '../types';
 import { storageService } from '../services/storageService';
 import { Button, Input, Select, Card, Badge, Modal, Combobox } from '../components/ui';
-import { Calendar, MessageSquare, TrendingUp, Plus, Edit, Trash2, Phone, DollarSign, MapPin, Building2, ExternalLink, Clock, Layers, Globe, ChevronRight, Search, FileText, ChevronDown, ChevronUp, History, Layout, MessageCircle, Download, Copy, Mail, Briefcase } from 'lucide-react';
+import { Calendar, MessageSquare, TrendingUp, Plus, Edit, Trash2, Phone, DollarSign, MapPin, Building2, ExternalLink, Clock, Layers, Globe, ChevronRight, Search, FileText, ChevronDown, ChevronUp, History, Layout, MessageCircle, Download, Copy, Mail, Briefcase, ArrowUpDown, Filter, X } from 'lucide-react';
 import { VIETNAM_PROVINCES } from '../constants';
 
 interface EmployeeDashboardProps {
@@ -32,12 +31,18 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   // State for Project Expansion
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
 
-  // Filters
+  // Filters (Timeline)
   const [searchTerm, setSearchTerm] = useState('');
   const [dateRange, setDateRange] = useState({
       start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().substring(0, 10),
       end: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().substring(0, 10)
   });
+
+  // Filters (Projects)
+  const [projSearchTerm, setProjSearchTerm] = useState('');
+  const [projSortOrder, setProjSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [projDateRange, setProjDateRange] = useState({ start: '', end: '' });
+
 
   // Modals state
   const [isAppModalOpen, setAppModalOpen] = useState(false);
@@ -343,7 +348,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
       cons: 12
   };
 
-  // --- Merge & Group Data ---
+  // --- Merge & Group Data (Timeline) ---
   const mergedData = useMemo(() => {
       const items: DashboardItem[] = [
           ...appointments.map(a => ({ ...a, dataType: 'APP' as const })),
@@ -376,12 +381,45 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
       return groups;
   }, [appointments, consultations, revenues, searchTerm, dateRange]);
 
+  // --- Filtered Projects (Project View) ---
+  const filteredProjects = useMemo(() => {
+      let result = [...projects];
+
+      // 1. Search (Multiple fields)
+      if (projSearchTerm) {
+          const lower = projSearchTerm.toLowerCase();
+          result = result.filter(p =>
+              p.contractCode.toLowerCase().includes(lower) ||
+              (p.customerName && p.customerName.toLowerCase().includes(lower)) ||
+              (p.phone && p.phone.includes(lower)) ||
+              (p.companyName && p.companyName.toLowerCase().includes(lower))
+          );
+      }
+
+      // 2. Date Filter
+      if (projDateRange.start) {
+          result = result.filter(p => p.signDate && p.signDate >= projDateRange.start);
+      }
+      if (projDateRange.end) {
+          result = result.filter(p => p.signDate && p.signDate <= projDateRange.end);
+      }
+
+      // 3. Sorting
+      result.sort((a, b) => {
+          const dateA = new Date(a.signDate || '1970-01-01').getTime();
+          const dateB = new Date(b.signDate || '1970-01-01').getTime();
+          return projSortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+      });
+
+      return result;
+  }, [projects, projSearchTerm, projDateRange, projSortOrder]);
+
 
   // --- EXCEL EXPORT ---
   const handleExportExcel = () => {
       if (!(window as any).XLSX) return alert("Thư viện Excel chưa tải xong. Vui lòng thử lại sau giây lát.");
       
-      const data = projects.map(p => {
+      const data = filteredProjects.map(p => {
           const relatedRevs = revenues.filter(r => r.contractCode === p.contractCode);
           const totalPaid = relatedRevs.reduce((sum, r) => sum + r.amountCollected, 0);
           return {
@@ -684,12 +722,49 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                      </div>
                  </div>
 
+                 {/* Filters Bar for Projects */}
+                 <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-3 items-center">
+                    <div className="flex-1 w-full relative">
+                        <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                        <input 
+                            className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
+                            placeholder="Tìm: Tên KH, Công ty, SĐT, Mã HĐ..." 
+                            value={projSearchTerm} 
+                            onChange={e => setProjSearchTerm(e.target.value)} 
+                        />
+                    </div>
+                    
+                    <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border border-gray-200 w-full md:w-auto">
+                        <span className="text-[10px] font-bold text-gray-500 pl-2 whitespace-nowrap">Ngày ký từ:</span>
+                        <input type="date" className="bg-transparent border-none text-xs font-bold text-gray-700 outline-none p-1" value={projDateRange.start} onChange={e => setProjDateRange({...projDateRange, start: e.target.value})} />
+                        <span className="text-gray-300">|</span>
+                        <input type="date" className="bg-transparent border-none text-xs font-bold text-gray-700 outline-none p-1" value={projDateRange.end} onChange={e => setProjDateRange({...projDateRange, end: e.target.value})} />
+                        {(projDateRange.start || projDateRange.end) && <button onClick={() => setProjDateRange({start: '', end: ''})} className="text-red-500 hover:text-red-700 px-2"><X size={14}/></button>}
+                    </div>
+
+                    <div className="w-full md:w-auto">
+                        <div className="relative">
+                            <ArrowUpDown size={14} className="absolute left-3 top-3 text-gray-400" />
+                            <select 
+                                className="w-full md:w-48 pl-8 pr-4 py-2 rounded-lg border border-gray-200 text-sm font-bold text-gray-700 bg-white focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+                                value={projSortOrder}
+                                onChange={(e) => setProjSortOrder(e.target.value as 'newest' | 'oldest')}
+                            >
+                                <option value="newest">Mới nhất trước</option>
+                                <option value="oldest">Cũ nhất trước</option>
+                            </select>
+                        </div>
+                    </div>
+                 </div>
+
                  {/* Project List - Accordion Style */}
                  <div className="space-y-4">
-                     {projects.length === 0 ? (
-                         <div className="text-center py-12 bg-white rounded-xl border-2 border-dashed border-gray-200 text-gray-400 italic">Chưa có hồ sơ dự án</div>
+                     {filteredProjects.length === 0 ? (
+                         <div className="text-center py-12 bg-white rounded-xl border-2 border-dashed border-gray-200 text-gray-400 italic">
+                             {projSearchTerm || projDateRange.start ? 'Không tìm thấy dự án phù hợp với bộ lọc' : 'Chưa có hồ sơ dự án'}
+                         </div>
                      ) : (
-                         projects.map(p => {
+                        filteredProjects.map(p => {
                              const isExpanded = expandedProjects[p.contractCode];
                              const relatedRevenues = revenues.filter(r => r.contractCode === p.contractCode);
                              const totalPaid = relatedRevenues.reduce((sum, r) => sum + r.amountCollected, 0);
