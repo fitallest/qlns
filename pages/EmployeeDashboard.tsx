@@ -108,7 +108,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
 
   // --- AUTO FILL CUSTOMER INFO ---
   const autofillCustomerInfo = async (phone: string, type: 'APP' | 'CONS' | 'PROJ' | 'REV') => {
-      if (!phone || phone.length < 8) return;
+      // Relaxed length check to allow testing with shorter numbers if needed
+      if (!phone || phone.length < 3) return;
       
       try {
           const info = await storageService.findCustomerByPhone(phone);
@@ -900,7 +901,14 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                   <Input label="Ngày tư vấn" type="date" value={editingCons.date ? editingCons.date.substring(0, 10) : ''} onChange={e => setEditingCons({...editingCons, date: e.target.value})} />
                   <Input label="Số điện thoại" value={editingCons.phone || ''} onChange={e => setEditingCons({...editingCons, phone: e.target.value})} onBlur={(e) => autofillCustomerInfo(e.target.value, 'CONS')} />
               </div>
-              <Input label="Tên khách hàng" value={editingCons.customerName || ''} onChange={e => setEditingCons({...editingCons, customerName: e.target.value})} />
+              <div className="grid grid-cols-2 gap-4">
+                  <Input label="Tên khách hàng" value={editingCons.customerName || ''} onChange={e => setEditingCons({...editingCons, customerName: e.target.value})} />
+                  <Input label="Tên công ty / Thương hiệu" value={editingCons.companyName || ''} onChange={e => setEditingCons({...editingCons, companyName: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                  <Input label="Địa chỉ" value={editingCons.addressDetail || ''} onChange={e => setEditingCons({...editingCons, addressDetail: e.target.value})} />
+                  <Input label="Nguồn khách hàng" value={editingCons.source || ''} onChange={e => setEditingCons({...editingCons, source: e.target.value})} />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                   <Select label="Loại hình" options={Object.values(ConsultationType).map(t => ({value: t, label: t}))} value={editingCons.type || ConsultationType.NEW} onChange={e => setEditingCons({...editingCons, type: e.target.value as ConsultationType})} />
                   <Select label="Hình thức hỗ trợ" options={Object.values(SupportType).map(t => ({value: t, label: t}))} value={editingCons.supportType || SupportType.SOLO} onChange={e => setEditingCons({...editingCons, supportType: e.target.value as SupportType})} />
