@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User, Appointment, Consultation, Revenue, MonthlyTarget, ROLE_RANK, Department, ROLE_LABELS } from '../types';
 import { storageService } from '../services/storageService';
-import { Loader2, Calendar as CalendarIcon, Users, DollarSign, Target, ChevronLeft, ChevronRight, Settings, Filter, Eye, X, Bell, Clock } from 'lucide-react';
+import { Loader2, Calendar as CalendarIcon, Users, DollarSign, Target, ChevronLeft, ChevronRight, Settings, Filter, Eye, X, Bell, Clock, User as UserIcon, FileText, Phone, MapPin, FileType } from 'lucide-react';
 import { Card, Button, Select, Modal, Badge } from '../components/ui';
 
 interface TeamManagementProps {
@@ -38,6 +38,9 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
     const [reminders, setReminders] = useState<any[]>([]);
     const [showReminders, setShowReminders] = useState(false);
 
+    // Tooltip State
+    const [tooltipData, setTooltipData] = useState<{ x: number, y: number, content: React.ReactNode } | null>(null);
+
     // Month Selection (YYYY-MM)
     const [selectedMonth, setSelectedMonth] = useState(() => {
         const now = new Date();
@@ -56,11 +59,12 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
 
         const check = () => {
             const now = new Date();
-            const todayStr = now.toISOString().split('T')[0];
+            const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
             const currentHour = now.getHours();
             
             let newReminders: any[] = [];
 
+            // 1. 8:00 AM Reminder for Today's Appointments
             if (currentHour >= 8) {
                 const todayApps = appointments.filter(a => a.date.startsWith(todayStr) && subordinates.some(u => u.id === a.userId));
                 if (todayApps.length > 0) {
@@ -75,15 +79,18 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 }
             }
 
+            // 2. 2 Hours Before Reminder
             appointments.forEach(app => {
                 if (!subordinates.some(u => u.id === app.userId)) return;
                 
                 const appDate = new Date(app.date);
+                // Check if valid date
                 if (isNaN(appDate.getTime())) return;
 
                 const timeDiff = appDate.getTime() - now.getTime();
                 const hoursDiff = timeDiff / (1000 * 60 * 60);
 
+                // If within 2 hours window (0 < diff <= 2 hours)
                 if (hoursDiff > 0 && hoursDiff <= 2) {
                      newReminders.push({
                         id: `reminder-${app.id}`,
@@ -100,7 +107,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         };
 
         check();
-        const interval = setInterval(check, 60000); 
+        const interval = setInterval(check, 60000); // Check every minute
         return () => clearInterval(interval);
     }, [appointments, subordinates, loading]);
 
@@ -108,32 +115,31 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         const fetchData = async () => {
             setLoading(true);
             try {
-                // FIX: Lấy toàn bộ target hoặc gọi API chuẩn, thay vì ép kiểu "as any"
-                // Cách tiếp cận này giúp TypeScript an tâm và app không bị crash nếu API thiếu hàm
-                const [users, depts, apps, consults, revs, allTargets] = await Promise.all([
+                const [users, depts, apps, consults, revs, monthTargets] = await Promise.all([
                     storageService.getUsers(),
                     storageService.getDepartments(),
                     storageService.getAppointments(),
                     storageService.getConsultations(),
                     storageService.getRevenues(),
-                    // Kiểm tra xem hàm có tồn tại thật không, nếu không thì fallback về mảng rỗng
-                    'getTargetsByMonth' in storageService 
-                        ? (storageService as unknown as { getTargetsByMonth: (m: string) => Promise<MonthlyTarget[]> }).getTargetsByMonth(selectedMonth)
-                        : Promise.resolve([] as MonthlyTarget[])
+                    (storageService as any).getTargetsByMonth(selectedMonth)
                 ]);
 
                 setDepartments(depts);
-                setTargets(allTargets);
+                setTargets(monthTargets);
 
+                // Filter Subordinates
+                // Logic similar to AdminDashboard but simpler: Get tree of users under current user
                 let teamUsers: User[] = [];
-                if (ROLE_RANK[currentUser.role] >= 5) {
-                     teamUsers = users;
+                if (ROLE_RANK[currentUser.role] >= 5) { // Director/Regional
+                     teamUsers = users; // Simplified for high level
                 } else {
+                    // Find direct and indirect subordinates
                     const managedDeptIds = new Set<string>();
                     const collectDepts = (managerId: string) => {
                          const directDepts = depts.filter(d => d.managerId === managerId);
                          directDepts.forEach(d => {
                              managedDeptIds.add(d.id);
+                             // Find sub-depts
                              const subDepts = depts.filter(sub => sub.parentId === d.id);
                              subDepts.forEach(sub => managedDeptIds.add(sub.id));
                          });
@@ -145,7 +151,8 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                         u.managerId === currentUser.id
                     );
                 }
-                
+                // Always include self? Maybe not for "Management" view, but usually yes.
+                // Let's include self if they are part of the team stats.
                 if (!teamUsers.find(u => u.id === currentUser.id)) {
                     teamUsers.push(currentUser);
                 }
@@ -169,6 +176,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         const [year, month] = selectedMonth.split('-').map(Number);
         
         const stats = subordinates.map((user, index) => {
+            // Filter data for this user and month
             const userApps = appointments.filter(a => {
                 const d = new Date(a.date);
                 return a.userId === user.id && d.getMonth() + 1 === month && d.getFullYear() === year;
@@ -184,6 +192,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
 
             const totalRevenue = userRevs.reduce((sum, r) => sum + r.amountCollected, 0);
             
+            // Find target for this user in this month
             const userTarget = targets.find(t => t.userId === user.id);
             const targetRevenue = userTarget ? userTarget.targetRevenue : 0;
 
@@ -211,6 +220,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         return { monthStats: stats, teamTotals: totals };
     }, [subordinates, appointments, consultations, revenues, selectedMonth, targets]);
 
+    // --- Calendar Data ---
     const calendarDays = useMemo(() => {
         const [year, month] = selectedMonth.split('-').map(Number);
         const daysInMonth = new Date(year, month, 0).getDate();
@@ -219,26 +229,198 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         for (let i = 1; i <= daysInMonth; i++) {
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
             
+            // Find events for this day from ALL subordinates
             const dayApps = appointments.filter(a => a.date.startsWith(dateStr) && subordinates.some(u => u.id === a.userId));
             const dayCons = consultations.filter(c => c.date.startsWith(dateStr) && subordinates.some(u => u.id === c.userId));
+            const dayRevs = revenues.filter(r => r.date.startsWith(dateStr) && subordinates.some(u => u.id === r.userId));
 
             days.push({
                 date: dateStr,
                 day: i,
                 events: [
                     ...dayApps.map(a => ({ type: 'APP', ...a, user: subordinates.find(u => u.id === a.userId)?.name })),
-                    ...dayCons.map(c => ({ type: 'CONS', ...c, user: subordinates.find(u => u.id === c.userId)?.name }))
+                    ...dayCons.map(c => ({ type: 'CONS', ...c, user: subordinates.find(u => u.id === c.userId)?.name })),
+                    ...dayRevs.map(r => ({ type: 'REV', ...r, user: subordinates.find(u => u.id === r.userId)?.name }))
                 ]
             });
         }
         return days;
-    }, [selectedMonth, appointments, consultations, subordinates]);
+    }, [selectedMonth, appointments, consultations, revenues, subordinates]);
+
+    // --- Helper: Render Event Item for Day Detail ---
+    const renderEventItem = useCallback((item: any, type: 'APP' | 'CONS' | 'REV') => {
+        const user = subordinates.find(u => u.id === item.userId);
+        
+        let colorClass = '';
+        let icon = null;
+        let title = '';
+        
+        if (type === 'APP') {
+            colorClass = 'blue';
+            icon = <CalendarIcon size={14} />;
+            title = 'CUỘC HẸN';
+        } else if (type === 'CONS') {
+            colorClass = 'purple';
+            icon = <Users size={14} />;
+            title = 'TƯ VẤN';
+        } else {
+            colorClass = 'green';
+            icon = <DollarSign size={14} />;
+            title = 'DOANH THU';
+        }
+
+        const handleMouseEnter = (e: React.MouseEvent) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const tooltipWidth = 280;
+            const tooltipHeight = 200; // Approx
+            
+            let x = rect.right + 10;
+            let y = rect.top;
+
+            // Check right edge
+            if (x + tooltipWidth > window.innerWidth) {
+                x = rect.left - tooltipWidth - 10;
+            }
+            
+            // Check bottom edge (simple check)
+            if (y + tooltipHeight > window.innerHeight) {
+                y = window.innerHeight - tooltipHeight - 10;
+            }
+
+            let content = null;
+            if (type === 'APP') {
+                content = (
+                    <div className="space-y-2 text-xs">
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
+                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
+                            <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><MapPin size={10}/> Đ/C:</span>
+                            <span className="col-span-2 font-medium text-gray-800">{item.addressDetail || item.location}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
+                            <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
+                        </div>
+                    </div>
+                );
+            } else if (type === 'CONS') {
+                content = (
+                    <div className="space-y-2 text-xs">
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
+                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
+                            <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><FileType size={10}/> Loại:</span>
+                            <span className="col-span-2 font-medium text-gray-800">{item.type}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
+                            <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
+                        </div>
+                    </div>
+                );
+            } else {
+                content = (
+                    <div className="space-y-2 text-xs">
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
+                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> HĐ:</span>
+                            <span className="col-span-2 font-medium text-gray-800">{item.contractCode}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><DollarSign size={10}/> Tiền:</span>
+                            <span className="col-span-2 font-black text-green-600">
+                                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.amountCollected)}
+                            </span>
+                        </div>
+                    </div>
+                );
+            }
+
+            setTooltipData({
+                x,
+                y,
+                content: (
+                    <div className="w-72 bg-white/95 backdrop-blur-sm p-3 rounded-xl shadow-2xl border border-gray-200 z-[70] animate-fadeIn ring-1 ring-black/5">
+                        <h4 className={`font-bold text-${colorClass}-700 border-b border-${colorClass}-100 pb-2 mb-2 text-xs flex items-center gap-2 uppercase`}>
+                            {icon} CHI TIẾT {title}
+                        </h4>
+                        {content}
+                    </div>
+                )
+            });
+        };
+
+        return (
+            <div 
+                key={item.id} 
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={() => setTooltipData(null)}
+                className={`group relative bg-${colorClass}-50 p-3 rounded-lg border border-${colorClass}-100 hover:shadow-md transition-all hover:border-${colorClass}-300 hover:bg-${colorClass}-50/80`}
+            >
+                <div className="flex justify-between items-start">
+                    <div>
+                        <p className="font-bold text-gray-900 text-sm">{item.customerName}</p>
+                        <p className="text-xs text-gray-600">
+                            {type === 'APP' ? item.companyName : type === 'CONS' ? item.type : item.contractCode}
+                        </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                        {type === 'APP' && <Badge variant="info">{item.status}</Badge>}
+                        {type === 'REV' && (
+                            <span className="text-xs font-black text-green-600">
+                                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.amountCollected)}
+                            </span>
+                        )}
+                        <button 
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedDateForDayDetail(null);
+                                setSelectedUserForDetail(item.userId);
+                            }}
+                            className={`opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-bold text-${colorClass}-600 bg-white border border-${colorClass}-200 px-2 py-1 rounded-full hover:bg-${colorClass}-50 transition-all duration-200 shadow-sm transform translate-x-2 group-hover:translate-x-0`}
+                            title="Xem hồ sơ nhân viên"
+                        >
+                            <UserIcon size={12} />
+                            Hồ sơ
+                        </button>
+                    </div>
+                </div>
+                <div className={`mt-2 pt-2 border-t border-${colorClass}-100 flex justify-between items-center text-xs`}>
+                    <span className={`text-${colorClass}-700 font-medium flex items-center gap-1`}>
+                        <Users size={12}/> {user?.name}
+                    </span>
+                    <span className="text-gray-500 flex items-center gap-1">
+                        <Clock size={12}/>
+                        {type === 'REV' 
+                            ? new Date(item.date).toLocaleDateString('vi-VN')
+                            : new Date(item.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})
+                        }
+                    </span>
+                </div>
+            </div>
+        );
+    }, [subordinates]);
 
     if (loading) return <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
 
     return (
         <div className="space-y-4 animate-fadeIn pb-12">
-            {/* Header section ... */}
+            {/* Compact Header */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                     <Button onClick={onBack} variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full hover:bg-gray-100 text-gray-500">
@@ -254,6 +436,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
                 
                 <div className="flex items-center gap-2">
+                    {/* Reminders Bell */}
                     <div className="relative">
                         <Button 
                             variant="ghost" 
@@ -267,6 +450,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                             )}
                         </Button>
                         
+                        {/* Reminders Dropdown */}
                         {showReminders && (
                             <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-fadeIn">
                                 <div className="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
@@ -312,7 +496,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
             </div>
 
-            {/* Summary Stats */}
+            {/* Summary Stats - Compact Row */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
@@ -360,6 +544,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Statistics Table - Takes 2/3 width on large screens */}
                 <div className="lg:col-span-2 flex flex-col">
                     <Card className="p-0 overflow-hidden border border-gray-200 shadow-sm flex-1">
                         <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
@@ -430,6 +615,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                     </Card>
                 </div>
 
+                {/* Calendar View - Takes 1/3 width on large screens */}
                 <div className="lg:col-span-1 flex flex-col">
                     <Card className="p-4 border border-gray-200 shadow-sm flex-1">
                         <div className="flex items-center justify-between mb-4">
@@ -440,6 +626,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                             <div className="flex gap-2 text-[10px] font-medium">
                                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Hẹn</div>
                                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500"></span> TV</div>
+                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> DT</div>
                             </div>
                         </div>
 
@@ -450,11 +637,13 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 </div>
                             ))}
                             
+                            {/* Padding for start of month */}
                             {Array.from({ length: new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1, 1).getDay() }).map((_, i) => (
                                 <div key={`pad-${i}`} className="bg-white min-h-[60px]"></div>
                             ))}
 
                             {calendarDays.map((day) => {
+                                // Filter events if a user is selected
                                 const displayEvents = selectedUserForDetail 
                                     ? day.events.filter((e: any) => e.userId === selectedUserForDetail)
                                     : day.events;
@@ -473,14 +662,15 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                             </span>
                                         </div>
                                         <div className="space-y-0.5">
-                                            {displayEvents.slice(0, 2).map((evt: any, idx: number) => (
+                                            {displayEvents.slice(0, 3).map((evt: any, idx: number) => (
                                                 <div key={`${evt.id}-${idx}`} className={`w-full h-1.5 rounded-full ${
-                                                    evt.type === 'APP' ? 'bg-blue-400' : 'bg-purple-400'
-                                                }`} title={`${evt.type === 'APP' ? 'Hẹn' : 'Tư vấn'}: ${evt.customerName} (${evt.user})`}></div>
+                                                    evt.type === 'APP' ? 'bg-blue-400' : 
+                                                    evt.type === 'CONS' ? 'bg-purple-400' : 'bg-green-400'
+                                                }`} title={`${evt.type === 'APP' ? 'Hẹn' : evt.type === 'CONS' ? 'Tư vấn' : 'Doanh thu'}: ${evt.customerName} (${evt.user})`}></div>
                                             ))}
-                                            {displayEvents.length > 2 && (
+                                            {displayEvents.length > 3 && (
                                                 <div className="text-[8px] text-gray-400 text-center leading-none">
-                                                    +{displayEvents.length - 2}
+                                                    +{displayEvents.length - 3}
                                                 </div>
                                             )}
                                         </div>
@@ -495,7 +685,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
             </div>
 
-            {/* Modals */}
+            {/* Column Customization Modal */}
             <Modal isOpen={showColumnModal} onClose={() => setShowColumnModal(false)} title="TÙY CHỈNH CỘT HIỂN THỊ">
                 <div className="p-1 grid grid-cols-2 gap-4">
                     {Object.entries(visibleColumns).map(([key, value]) => (
@@ -525,6 +715,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
             </Modal>
 
+            {/* User Detail Modal */}
             {selectedUserForDetail && (
                 <Modal isOpen={!!selectedUserForDetail} onClose={() => setSelectedUserForDetail(null)} title="CHI TIẾT HOẠT ĐỘNG" size="lg">
                     <div className="space-y-6">
@@ -539,6 +730,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Appointments List */}
                             <div>
                                 <h5 className="font-bold text-blue-700 mb-3 flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-blue-600"></span> CUỘC HẸN ({selectedMonth})
@@ -563,6 +755,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 </div>
                             </div>
 
+                            {/* Consultations List */}
                             <div>
                                 <h5 className="font-bold text-purple-700 mb-3 flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-purple-600"></span> TƯ VẤN ({selectedMonth})
@@ -589,14 +782,16 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </Modal>
             )}
 
+            {/* Day Detail Modal */}
             {selectedDateForDayDetail && (
                 <Modal isOpen={!!selectedDateForDayDetail} onClose={() => setSelectedDateForDayDetail(null)} title={`LỊCH NGÀY ${new Date(selectedDateForDayDetail).toLocaleDateString('vi-VN')}`} size="md">
-                    <div className="space-y-4">
+                    <div className="space-y-4 pb-4">
                         {(() => {
                             const dayApps = appointments.filter(a => a.date.startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === a.userId));
                             const dayCons = consultations.filter(c => c.date.startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === c.userId));
+                            const dayRevs = revenues.filter(r => r.date.startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === r.userId));
                             
-                            if (dayApps.length === 0 && dayCons.length === 0) {
+                            if (dayApps.length === 0 && dayCons.length === 0 && dayRevs.length === 0) {
                                 return <p className="text-center text-gray-400 italic py-8">Không có hoạt động nào trong ngày này</p>;
                             }
 
@@ -604,57 +799,33 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 <>
                                     {dayApps.length > 0 && (
                                         <div>
-                                            <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-2 text-sm">
-                                                <span className="w-2 h-2 rounded-full bg-blue-600"></span> CUỘC HẸN ({dayApps.length})
+                                            <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-2 text-sm uppercase">
+                                                <span className="w-2 h-2 rounded-full bg-blue-600"></span> Cuộc hẹn ({dayApps.length})
                                             </h5>
                                             <div className="space-y-2">
-                                                {dayApps.map(app => (
-                                                    <div key={app.id} className="bg-blue-50 p-3 rounded-lg border border-blue-100">
-                                                        <div className="flex justify-between items-start">
-                                                            <div>
-                                                                <p className="font-bold text-gray-900 text-sm">{app.customerName}</p>
-                                                                <p className="text-xs text-gray-600">{app.companyName}</p>
-                                                            </div>
-                                                            <Badge variant="info">{app.status}</Badge>
-                                                        </div>
-                                                        <div className="mt-2 pt-2 border-t border-blue-100 flex justify-between items-center text-xs">
-                                                            <span className="text-blue-700 font-medium">
-                                                                NV: {subordinates.find(u => u.id === app.userId)?.name}
-                                                            </span>
-                                                            <span className="text-gray-500">
-                                                                {new Date(app.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                {dayApps.map(app => renderEventItem(app, 'APP'))}
                                             </div>
                                         </div>
                                     )}
 
                                     {dayCons.length > 0 && (
                                         <div>
-                                            <h5 className="font-bold text-purple-700 mb-2 flex items-center gap-2 text-sm">
-                                                <span className="w-2 h-2 rounded-full bg-purple-600"></span> TƯ VẤN ({dayCons.length})
+                                            <h5 className="font-bold text-purple-700 mb-2 flex items-center gap-2 text-sm uppercase">
+                                                <span className="w-2 h-2 rounded-full bg-purple-600"></span> Tư vấn ({dayCons.length})
                                             </h5>
                                             <div className="space-y-2">
-                                                {dayCons.map(cons => (
-                                                    <div key={cons.id} className="bg-purple-50 p-3 rounded-lg border border-purple-100">
-                                                        <div className="flex justify-between items-start">
-                                                            <div>
-                                                                <p className="font-bold text-gray-900 text-sm">{cons.customerName}</p>
-                                                                <p className="text-xs text-gray-600">{cons.type}</p>
-                                                            </div>
-                                                        </div>
-                                                        <div className="mt-2 pt-2 border-t border-purple-100 flex justify-between items-center text-xs">
-                                                            <span className="text-purple-700 font-medium">
-                                                                NV: {subordinates.find(u => u.id === cons.userId)?.name}
-                                                            </span>
-                                                            <span className="text-gray-500">
-                                                                {new Date(cons.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                {dayCons.map(cons => renderEventItem(cons, 'CONS'))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {dayRevs.length > 0 && (
+                                        <div>
+                                            <h5 className="font-bold text-green-700 mb-2 flex items-center gap-2 text-sm uppercase">
+                                                <span className="w-2 h-2 rounded-full bg-green-600"></span> Doanh thu ({dayRevs.length})
+                                            </h5>
+                                            <div className="space-y-2">
+                                                {dayRevs.map(rev => renderEventItem(rev, 'REV'))}
                                             </div>
                                         </div>
                                     )}
@@ -663,6 +834,16 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                         })()}
                     </div>
                 </Modal>
+            )}
+
+            {/* Global Tooltip Portal */}
+            {tooltipData && (
+                <div 
+                    className="fixed z-[70] pointer-events-none"
+                    style={{ left: tooltipData.x, top: tooltipData.y }}
+                >
+                    {tooltipData.content}
+                </div>
             )}
         </div>
     );
