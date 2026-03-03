@@ -56,12 +56,11 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
 
         const check = () => {
             const now = new Date();
-            const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+            const todayStr = now.toISOString().split('T')[0];
             const currentHour = now.getHours();
             
             let newReminders: any[] = [];
 
-            // 1. 8:00 AM Reminder for Today's Appointments
             if (currentHour >= 8) {
                 const todayApps = appointments.filter(a => a.date.startsWith(todayStr) && subordinates.some(u => u.id === a.userId));
                 if (todayApps.length > 0) {
@@ -76,18 +75,15 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 }
             }
 
-            // 2. 2 Hours Before Reminder
             appointments.forEach(app => {
                 if (!subordinates.some(u => u.id === app.userId)) return;
                 
                 const appDate = new Date(app.date);
-                // Check if valid date
                 if (isNaN(appDate.getTime())) return;
 
                 const timeDiff = appDate.getTime() - now.getTime();
                 const hoursDiff = timeDiff / (1000 * 60 * 60);
 
-                // If within 2 hours window (0 < diff <= 2 hours)
                 if (hoursDiff > 0 && hoursDiff <= 2) {
                      newReminders.push({
                         id: `reminder-${app.id}`,
@@ -104,7 +100,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         };
 
         check();
-        const interval = setInterval(check, 60000); // Check every minute
+        const interval = setInterval(check, 60000); 
         return () => clearInterval(interval);
     }, [appointments, subordinates, loading]);
 
@@ -112,31 +108,32 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         const fetchData = async () => {
             setLoading(true);
             try {
-                const [users, depts, apps, consults, revs, monthTargets] = await Promise.all([
+                // FIX: Lấy toàn bộ target hoặc gọi API chuẩn, thay vì ép kiểu "as any"
+                // Cách tiếp cận này giúp TypeScript an tâm và app không bị crash nếu API thiếu hàm
+                const [users, depts, apps, consults, revs, allTargets] = await Promise.all([
                     storageService.getUsers(),
                     storageService.getDepartments(),
                     storageService.getAppointments(),
                     storageService.getConsultations(),
                     storageService.getRevenues(),
-                    (storageService as any).getTargetsByMonth(selectedMonth)
+                    // Kiểm tra xem hàm có tồn tại thật không, nếu không thì fallback về mảng rỗng
+                    'getTargetsByMonth' in storageService 
+                        ? (storageService as unknown as { getTargetsByMonth: (m: string) => Promise<MonthlyTarget[]> }).getTargetsByMonth(selectedMonth)
+                        : Promise.resolve([] as MonthlyTarget[])
                 ]);
 
                 setDepartments(depts);
-                setTargets(monthTargets);
+                setTargets(allTargets);
 
-                // Filter Subordinates
-                // Logic similar to AdminDashboard but simpler: Get tree of users under current user
                 let teamUsers: User[] = [];
-                if (ROLE_RANK[currentUser.role] >= 5) { // Director/Regional
-                     teamUsers = users; // Simplified for high level
+                if (ROLE_RANK[currentUser.role] >= 5) {
+                     teamUsers = users;
                 } else {
-                    // Find direct and indirect subordinates
                     const managedDeptIds = new Set<string>();
                     const collectDepts = (managerId: string) => {
                          const directDepts = depts.filter(d => d.managerId === managerId);
                          directDepts.forEach(d => {
                              managedDeptIds.add(d.id);
-                             // Find sub-depts
                              const subDepts = depts.filter(sub => sub.parentId === d.id);
                              subDepts.forEach(sub => managedDeptIds.add(sub.id));
                          });
@@ -148,8 +145,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                         u.managerId === currentUser.id
                     );
                 }
-                // Always include self? Maybe not for "Management" view, but usually yes.
-                // Let's include self if they are part of the team stats.
+                
                 if (!teamUsers.find(u => u.id === currentUser.id)) {
                     teamUsers.push(currentUser);
                 }
@@ -173,7 +169,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         const [year, month] = selectedMonth.split('-').map(Number);
         
         const stats = subordinates.map((user, index) => {
-            // Filter data for this user and month
             const userApps = appointments.filter(a => {
                 const d = new Date(a.date);
                 return a.userId === user.id && d.getMonth() + 1 === month && d.getFullYear() === year;
@@ -189,7 +184,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
 
             const totalRevenue = userRevs.reduce((sum, r) => sum + r.amountCollected, 0);
             
-            // Find target for this user in this month
             const userTarget = targets.find(t => t.userId === user.id);
             const targetRevenue = userTarget ? userTarget.targetRevenue : 0;
 
@@ -217,7 +211,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         return { monthStats: stats, teamTotals: totals };
     }, [subordinates, appointments, consultations, revenues, selectedMonth, targets]);
 
-    // --- Calendar Data ---
     const calendarDays = useMemo(() => {
         const [year, month] = selectedMonth.split('-').map(Number);
         const daysInMonth = new Date(year, month, 0).getDate();
@@ -226,7 +219,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         for (let i = 1; i <= daysInMonth; i++) {
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
             
-            // Find events for this day from ALL subordinates
             const dayApps = appointments.filter(a => a.date.startsWith(dateStr) && subordinates.some(u => u.id === a.userId));
             const dayCons = consultations.filter(c => c.date.startsWith(dateStr) && subordinates.some(u => u.id === c.userId));
 
@@ -246,7 +238,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
 
     return (
         <div className="space-y-4 animate-fadeIn pb-12">
-            {/* Compact Header */}
+            {/* Header section ... */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                     <Button onClick={onBack} variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full hover:bg-gray-100 text-gray-500">
@@ -262,7 +254,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
                 
                 <div className="flex items-center gap-2">
-                    {/* Reminders Bell */}
                     <div className="relative">
                         <Button 
                             variant="ghost" 
@@ -276,7 +267,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                             )}
                         </Button>
                         
-                        {/* Reminders Dropdown */}
                         {showReminders && (
                             <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-fadeIn">
                                 <div className="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
@@ -322,7 +312,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
             </div>
 
-            {/* Summary Stats - Compact Row */}
+            {/* Summary Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
@@ -370,7 +360,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Statistics Table - Takes 2/3 width on large screens */}
                 <div className="lg:col-span-2 flex flex-col">
                     <Card className="p-0 overflow-hidden border border-gray-200 shadow-sm flex-1">
                         <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
@@ -441,7 +430,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                     </Card>
                 </div>
 
-                {/* Calendar View - Takes 1/3 width on large screens */}
                 <div className="lg:col-span-1 flex flex-col">
                     <Card className="p-4 border border-gray-200 shadow-sm flex-1">
                         <div className="flex items-center justify-between mb-4">
@@ -462,13 +450,11 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 </div>
                             ))}
                             
-                            {/* Padding for start of month */}
                             {Array.from({ length: new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1, 1).getDay() }).map((_, i) => (
                                 <div key={`pad-${i}`} className="bg-white min-h-[60px]"></div>
                             ))}
 
                             {calendarDays.map((day) => {
-                                // Filter events if a user is selected
                                 const displayEvents = selectedUserForDetail 
                                     ? day.events.filter((e: any) => e.userId === selectedUserForDetail)
                                     : day.events;
@@ -509,7 +495,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
             </div>
 
-            {/* Column Customization Modal */}
+            {/* Modals */}
             <Modal isOpen={showColumnModal} onClose={() => setShowColumnModal(false)} title="TÙY CHỈNH CỘT HIỂN THỊ">
                 <div className="p-1 grid grid-cols-2 gap-4">
                     {Object.entries(visibleColumns).map(([key, value]) => (
@@ -539,7 +525,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
             </Modal>
 
-            {/* User Detail Modal */}
             {selectedUserForDetail && (
                 <Modal isOpen={!!selectedUserForDetail} onClose={() => setSelectedUserForDetail(null)} title="CHI TIẾT HOẠT ĐỘNG" size="lg">
                     <div className="space-y-6">
@@ -554,7 +539,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Appointments List */}
                             <div>
                                 <h5 className="font-bold text-blue-700 mb-3 flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-blue-600"></span> CUỘC HẸN ({selectedMonth})
@@ -579,7 +563,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 </div>
                             </div>
 
-                            {/* Consultations List */}
                             <div>
                                 <h5 className="font-bold text-purple-700 mb-3 flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-purple-600"></span> TƯ VẤN ({selectedMonth})
@@ -606,7 +589,6 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </Modal>
             )}
 
-            {/* Day Detail Modal */}
             {selectedDateForDayDetail && (
                 <Modal isOpen={!!selectedDateForDayDetail} onClose={() => setSelectedDateForDayDetail(null)} title={`LỊCH NGÀY ${new Date(selectedDateForDayDetail).toLocaleDateString('vi-VN')}`} size="md">
                     <div className="space-y-4">
