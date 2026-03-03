@@ -193,6 +193,12 @@ export const storageService = {
       return snap.docs.map(d => mapDoc(d) as MonthlyTarget);
   },
 
+  getTargetsByMonth: async (monthStr: string): Promise<MonthlyTarget[]> => {
+      const q = query(collection(db, COLS.TARGETS), where("monthStr", "==", monthStr));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => mapDoc(d) as MonthlyTarget);
+  },
+
   // --- CRUD Standard (Now Async) ---
 
   // DEPARTMENTS
