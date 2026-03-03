@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Login } from './pages/Login';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { EmployeeDashboard } from './pages/EmployeeDashboard';
+import { TeamManagement } from './pages/TeamManagement';
 import { Layout } from './components/Layout';
 import { storageService } from './services/storageService';
 import { User, ROLE_RANK } from './types';
@@ -11,6 +12,7 @@ import { Loader2 } from 'lucide-react';
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [currentView, setCurrentView] = useState<'dashboard' | 'team'>('dashboard');
 
   useEffect(() => {
     // Attempt to restore session
@@ -34,6 +36,7 @@ function App() {
   const handleLogout = () => {
     storageService.logout();
     setUser(null);
+    setCurrentView('dashboard');
   };
 
   if (checkingSession) {
@@ -48,9 +51,13 @@ function App() {
   const isManager = ROLE_RANK[user.role] > 1;
 
   return (
-    <Layout user={user} onLogout={handleLogout}>
+    <Layout user={user} onLogout={handleLogout} onViewChange={setCurrentView} currentView={currentView}>
       {isManager ? (
-        <AdminDashboard currentUser={user} />
+        currentView === 'team' ? (
+            <TeamManagement currentUser={user} onBack={() => setCurrentView('dashboard')} />
+        ) : (
+            <AdminDashboard currentUser={user} />
+        )
       ) : (
         <EmployeeDashboard user={user} />
       )}
