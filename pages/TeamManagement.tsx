@@ -64,22 +64,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
             
             let newReminders: any[] = [];
 
-            // 1. 8:00 AM Reminder for Today's Appointments
-            if (currentHour >= 8) {
-                const todayApps = appointments.filter(a => a.date.startsWith(todayStr) && subordinates.some(u => u.id === a.userId));
-                if (todayApps.length > 0) {
-                    newReminders.push({
-                        id: 'daily-summary',
-                        type: 'DAILY',
-                        title: 'Lịch hẹn hôm nay',
-                        message: `Team có ${todayApps.length} cuộc hẹn trong hôm nay.`,
-                        time: '08:00',
-                        count: todayApps.length
-                    });
-                }
-            }
-
-            // 2. 2 Hours Before Reminder
+            // 1. 1 Hour Before Reminder
             appointments.forEach(app => {
                 if (!subordinates.some(u => u.id === app.userId)) return;
                 
@@ -90,12 +75,12 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 const timeDiff = appDate.getTime() - now.getTime();
                 const hoursDiff = timeDiff / (1000 * 60 * 60);
 
-                // If within 2 hours window (0 < diff <= 2 hours)
-                if (hoursDiff > 0 && hoursDiff <= 2) {
+                // If within 1 hour window (0 < diff <= 1 hour)
+                if (hoursDiff > 0 && hoursDiff <= 1) {
                      newReminders.push({
                         id: `reminder-${app.id}`,
                         type: 'URGENT',
-                        title: 'Sắp diễn ra',
+                        title: 'Sắp diễn ra (1h)',
                         message: `Cuộc hẹn với ${app.customerName} (${subordinates.find(u => u.id === app.userId)?.name})`,
                         time: appDate.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}),
                         details: app
