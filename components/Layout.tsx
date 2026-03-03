@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { User, UserRole } from '../types';
-import { LogOut, User as UserIcon, KeyRound } from 'lucide-react';
+import { User, UserRole, ROLE_RANK } from '../types';
+import { LogOut, User as UserIcon, KeyRound, Users, LayoutDashboard } from 'lucide-react';
 import { Modal, Input, Button } from './ui';
 import { storageService } from '../services/storageService';
 
@@ -9,12 +9,16 @@ interface LayoutProps {
   user: User;
   onLogout: () => void;
   children: React.ReactNode;
+  onViewChange?: (view: 'dashboard' | 'team') => void;
+  currentView?: 'dashboard' | 'team';
 }
 
-export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children }) => {
+export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children, onViewChange, currentView }) => {
   const [showChangePassModal, setShowChangePassModal] = useState(false);
   const [passForm, setPassForm] = useState({ oldPass: '', newPass: '', confirmPass: '' });
   const [loading, setLoading] = useState(false);
+  
+  const isManager = ROLE_RANK[user.role] > 1;
 
   const handleChangePassword = async () => {
     if (!passForm.oldPass || !passForm.newPass || !passForm.confirmPass) {
@@ -56,6 +60,23 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children }) => {
               </span>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4">
+              {isManager && onViewChange && (
+                  <div className="flex bg-gray-100 rounded-lg p-1 mr-4">
+                      <button 
+                          onClick={() => onViewChange('dashboard')}
+                          className={`flex items-center px-3 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${currentView === 'dashboard' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                      >
+                          <LayoutDashboard size={14} className="mr-1.5"/> <span className="hidden sm:inline">Dashboard</span>
+                      </button>
+                      <button 
+                          onClick={() => onViewChange('team')}
+                          className={`flex items-center px-3 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${currentView === 'team' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                      >
+                          <Users size={14} className="mr-1.5"/> <span className="hidden sm:inline">Quản trị Team</span>
+                      </button>
+                  </div>
+              )}
+
               <div className="hidden sm:flex items-center text-sm text-gray-700">
                 <UserIcon size={16} className="mr-2" />
                 <span className="font-medium">{user.name}</span>
