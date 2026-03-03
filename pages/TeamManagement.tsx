@@ -118,7 +118,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                     storageService.getAppointments(),
                     storageService.getConsultations(),
                     storageService.getRevenues(),
-                    storageService.getTargetsByMonth(selectedMonth)
+                    (storageService as any).getTargetsByMonth(selectedMonth)
                 ]);
 
                 setDepartments(depts);
