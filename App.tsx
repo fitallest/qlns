@@ -5,6 +5,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { EmployeeDashboard } from './pages/EmployeeDashboard';
 import { TeamManagement } from './pages/TeamManagement';
 import { Layout } from './components/Layout';
+import { NotificationManager } from './components/NotificationManager';
 import { storageService } from './services/storageService';
 import { User, ROLE_RANK } from './types';
 import { Loader2 } from 'lucide-react';
@@ -52,6 +53,7 @@ function App() {
 
   return (
     <Layout user={user} onLogout={handleLogout} onViewChange={setCurrentView} currentView={currentView}>
+      <NotificationManager currentUser={user} />
       {isManager ? (
         currentView === 'team' ? (
             <TeamManagement currentUser={user} onBack={() => setCurrentView('dashboard')} />
