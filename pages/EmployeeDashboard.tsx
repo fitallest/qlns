@@ -195,7 +195,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
 
   // --- Handlers ---
   const handleSaveApp = async () => {
-      if (!editingApp.customerName || !editingApp.phone || !editingApp.date) return alert("Thiếu thông tin bắt buộc");
+      if (!editingApp.customerName || !editingApp.phone || !editingApp.date || !editingApp.reportedTime) return alert("Thiếu thông tin bắt buộc (Tên, SĐT, Thời gian hẹn, Thời gian báo hẹn)");
       try {
           const appData = { ...editingApp, userId: user.id, status: editingApp.status || AppointmentStatus.NEW } as Appointment;
           if (!appData.id) appData.id = `APP_${Date.now()}`;
@@ -359,7 +359,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   
   // Filter data by range for KPI
   const kpiRevenues = revenues.filter(r => r.date >= dateRange.start && r.date <= dateRange.end);
-  const kpiAppointments = appointments.filter(a => a.date >= dateRange.start && a.date <= dateRange.end);
+  const kpiAppointments = appointments.filter(a => (a.reportedTime || a.date) >= dateRange.start && (a.reportedTime || a.date) <= dateRange.end);
   const kpiConsultations = consultations.filter(c => c.date >= dateRange.start && c.date <= dateRange.end);
 
   const stats = {
@@ -383,9 +383,16 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
           ...revenues.map(r => ({ ...r, dataType: 'REV' as const })),
       ];
 
+      const getItemDate = (item: DashboardItem) => {
+          if (item.dataType === 'APP' && item.reportedTime) {
+              return item.reportedTime;
+          }
+          return item.date;
+      };
+
       // Filter
       const filtered = items.filter(item => {
-          const date = item.date.substring(0, 10);
+          const date = getItemDate(item).substring(0, 10);
           const inRange = date >= dateRange.start && date <= dateRange.end;
           const matchesSearch = searchTerm === '' || 
               item.customerName.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -395,12 +402,12 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
       });
 
       // Sort Descending by Time
-      filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      filtered.sort((a, b) => new Date(getItemDate(b)).getTime() - new Date(getItemDate(a)).getTime());
 
       // Group by Date
       const groups: Record<string, DashboardItem[]> = {};
       filtered.forEach(item => {
-          const dateKey = item.date.substring(0, 10);
+          const dateKey = getItemDate(item).substring(0, 10);
           if (!groups[dateKey]) groups[dateKey] = [];
           groups[dateKey].push(item);
       });
@@ -476,7 +483,13 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
 
   // Helper to render items
   const renderItem = (item: DashboardItem) => {
-      const timeStr = new Date(item.date).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'});
+      const getItemDate = (item: DashboardItem) => {
+          if (item.dataType === 'APP' && item.reportedTime) {
+              return item.reportedTime;
+          }
+          return item.date;
+      };
+      const timeStr = new Date(getItemDate(item)).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'});
       
       if (item.dataType === 'REV') {
           return (
@@ -516,6 +529,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                           </div>
                           <div className="font-bold text-gray-800 text-lg">{item.customerName}</div>
                           <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
+                              <span className="flex items-center gap-1"><Calendar size={12}/> Hẹn lúc: {new Date(item.date).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</span>
                               <span className="flex items-center gap-1"><Phone size={12}/> {item.phone}</span>
                               {item.companyName && <span className="flex items-center gap-1"><Building2 size={12}/> {item.companyName}</span>}
                               {item.location && <span className="flex items-center gap-1"><MapPin size={12}/> {item.location}</span>}
@@ -524,7 +538,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                       <div className="text-right">
                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button onClick={() => handleCopyReport(item)} className="text-gray-400 hover:text-green-600" title="Copy báo cáo Zalo"><Copy size={16}/></button>
-                                {!isViewOnly && <button onClick={() => {setEditingApp(item); setAppModalOpen(true)}} className="text-gray-400 hover:text-blue-600"><Edit size={16}/></button>}
+                                {!isViewOnly && <button onClick={() => {setEditingApp({...item, reportedTime: item.reportedTime || item.date}); setAppModalOpen(true)}} className="text-gray-400 hover:text-blue-600"><Edit size={16}/></button>}
                                 {!isViewOnly && <button onClick={() => handleDeleteApp(item.id)} className="text-gray-400 hover:text-red-600"><Trash2 size={16}/></button>}
                            </div>
                       </div>
@@ -676,7 +690,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                         <input type="date" className="bg-transparent border-none text-xs font-bold text-gray-700 outline-none p-1" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
                     </div>
                     <div className="flex gap-2 w-full md:w-auto">
-                        {!isViewOnly && <button onClick={() => { setEditingApp({ date: getLocalDatetimeString(), status: AppointmentStatus.NEW }); setAppModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-blue-700 transition-all flex items-center justify-center gap-1 shadow-lg shadow-blue-100"><Plus size={14} className="bg-white/20 rounded-full p-0.5"/> Hẹn mới</button>}
+                        {!isViewOnly && <button onClick={() => { setEditingApp({ date: getLocalDatetimeString(), reportedTime: getLocalDatetimeString(), status: AppointmentStatus.NEW }); setAppModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-blue-700 transition-all flex items-center justify-center gap-1 shadow-lg shadow-blue-100"><Plus size={14} className="bg-white/20 rounded-full p-0.5"/> Hẹn mới</button>}
                         {!isViewOnly && <button onClick={() => { setEditingCons({ date: getLocalDatetimeString(), type: ConsultationType.NEW, supportType: SupportType.SOLO }); setConsModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-white text-green-600 border border-green-200 rounded-lg text-xs font-bold uppercase hover:bg-green-50 transition-all flex items-center justify-center gap-1"><Plus size={14}/> Tư vấn</button>}
                         {!isViewOnly && <button onClick={() => { setEditingRev({ date: getLocalDateString(), type: RevenueType.NEW }); setRevModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-white text-orange-600 border border-orange-200 rounded-lg text-xs font-bold uppercase hover:bg-orange-50 transition-all flex items-center justify-center gap-1"><Plus size={14}/> Thu tiền</button>}
                     </div>
@@ -979,13 +993,16 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
               </div>
               <div className="grid grid-cols-2 gap-4">
                   <Input label="Thời gian hẹn" type="datetime-local" value={editingApp.date || ''} onChange={e => setEditingApp({...editingApp, date: e.target.value})} />
-                  <Select label="Trạng thái" options={Object.values(AppointmentStatus).map(s => ({value: s, label: s}))} value={editingApp.status || AppointmentStatus.NEW} onChange={e => setEditingApp({...editingApp, status: e.target.value as AppointmentStatus})} />
+                  <Input label="Thời gian báo hẹn" type="datetime-local" value={editingApp.reportedTime || ''} onChange={e => setEditingApp({...editingApp, reportedTime: e.target.value})} />
               </div>
               <div className="grid grid-cols-2 gap-4">
+                  <Select label="Trạng thái" options={Object.values(AppointmentStatus).map(s => ({value: s, label: s}))} value={editingApp.status || AppointmentStatus.NEW} onChange={e => setEditingApp({...editingApp, status: e.target.value as AppointmentStatus})} />
                   <Combobox label="Tỉnh / Thành phố" value={editingApp.location || ''} onChange={val => setEditingApp({...editingApp, location: val})} options={VIETNAM_PROVINCES} />
-                  <Input label="Nguồn khách hàng" value={editingApp.source || ''} onChange={e => setEditingApp({...editingApp, source: e.target.value})} placeholder="VD: Data, Tự tìm kiếm..." />
               </div>
-              <Input label="Địa chỉ chi tiết" value={editingApp.addressDetail || ''} onChange={e => setEditingApp({...editingApp, addressDetail: e.target.value})} />
+              <div className="grid grid-cols-2 gap-4">
+                  <Input label="Nguồn khách hàng" value={editingApp.source || ''} onChange={e => setEditingApp({...editingApp, source: e.target.value})} placeholder="VD: Data, Tự tìm kiếm..." />
+                  <Input label="Địa chỉ chi tiết" value={editingApp.addressDetail || ''} onChange={e => setEditingApp({...editingApp, addressDetail: e.target.value})} />
+              </div>
               <div className="w-full">
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Ghi chú thêm</label>
                   <textarea className="w-full border border-gray-300 rounded-md p-2 text-sm h-24" value={editingApp.notes || ''} onChange={e => setEditingApp({...editingApp, notes: e.target.value})}></textarea>
