@@ -163,7 +163,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         const stats = subordinates.map((user, index) => {
             // Filter data for this user and month
             const userApps = appointments.filter(a => {
-                const d = new Date(a.date);
+                const d = new Date(a.reportedTime || a.date);
                 return a.userId === user.id && d.getMonth() + 1 === month && d.getFullYear() === year;
             });
             const userCons = consultations.filter(c => {
@@ -215,7 +215,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
             
             // Find events for this day from ALL subordinates
-            const dayApps = appointments.filter(a => a.date.startsWith(dateStr) && subordinates.some(u => u.id === a.userId));
+            const dayApps = appointments.filter(a => (a.reportedTime || a.date).startsWith(dateStr) && subordinates.some(u => u.id === a.userId));
             const dayCons = consultations.filter(c => c.date.startsWith(dateStr) && subordinates.some(u => u.id === c.userId));
             const dayRevs = revenues.filter(r => r.date.startsWith(dateStr) && subordinates.some(u => u.id === r.userId));
 
@@ -393,7 +393,9 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                         <Clock size={12}/>
                         {type === 'REV' 
                             ? new Date(item.date).toLocaleDateString('vi-VN')
-                            : new Date(item.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})
+                            : type === 'APP' 
+                                ? new Date(item.reportedTime || item.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})
+                                : new Date(item.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})
                         }
                     </span>
                 </div>
@@ -723,16 +725,17 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                     <span className="w-2 h-2 rounded-full bg-blue-600"></span> CUỘC HẸN ({selectedMonth})
                                 </h5>
                                 <div className="bg-gray-50 rounded-lg p-3 max-h-[300px] overflow-y-auto space-y-2">
-                                    {appointments.filter(a => a.userId === selectedUserForDetail && a.date.startsWith(selectedMonth)).length === 0 ? (
+                                    {appointments.filter(a => a.userId === selectedUserForDetail && (a.reportedTime || a.date).startsWith(selectedMonth)).length === 0 ? (
                                         <p className="text-xs text-gray-400 italic text-center py-4">Không có cuộc hẹn nào</p>
                                     ) : (
-                                        appointments.filter(a => a.userId === selectedUserForDetail && a.date.startsWith(selectedMonth))
-                                        .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                                        appointments.filter(a => a.userId === selectedUserForDetail && (a.reportedTime || a.date).startsWith(selectedMonth))
+                                        .sort((a,b) => new Date(a.reportedTime || a.date).getTime() - new Date(b.reportedTime || b.date).getTime())
                                         .map(app => (
                                             <div key={app.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-xs">
-                                                <div className="font-bold text-gray-800">{new Date(app.date).toLocaleDateString('vi-VN')}</div>
+                                                <div className="font-bold text-gray-800">{new Date(app.reportedTime || app.date).toLocaleDateString('vi-VN')} {new Date(app.reportedTime || app.date).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
                                                 <div className="text-blue-600 font-medium">{app.customerName}</div>
                                                 <div className="text-gray-500">{app.companyName}</div>
+                                                <div className="text-gray-500 mt-1">Hẹn lúc: {new Date(app.date).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
                                                 <div className="mt-1 flex justify-between items-center">
                                                     <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px]">{app.status}</span>
                                                 </div>
@@ -774,7 +777,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 <Modal isOpen={!!selectedDateForDayDetail} onClose={() => setSelectedDateForDayDetail(null)} title={`LỊCH NGÀY ${new Date(selectedDateForDayDetail).toLocaleDateString('vi-VN')}`} size="md">
                     <div className="space-y-4 pb-4">
                         {(() => {
-                            const dayApps = appointments.filter(a => a.date.startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === a.userId));
+                            const dayApps = appointments.filter(a => (a.reportedTime || a.date).startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === a.userId));
                             const dayCons = consultations.filter(c => c.date.startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === c.userId));
                             const dayRevs = revenues.filter(r => r.date.startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === r.userId));
                             
