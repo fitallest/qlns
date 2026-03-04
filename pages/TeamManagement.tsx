@@ -985,8 +985,11 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 return <p className="text-center text-gray-400 italic py-8">Không có hoạt động nào trong ngày này</p>;
                             }
 
+                            const activeCount = [dayApps.length > 0, dayCons.length > 0, dayRevs.length > 0].filter(Boolean).length;
+                            const gridColsClass = activeCount === 1 ? 'grid-cols-1' : activeCount === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
+
                             return (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className={`grid ${gridColsClass} gap-4`}>
                                     {dayApps.length > 0 && (
                                         <div>
                                             <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-2 text-sm uppercase">
