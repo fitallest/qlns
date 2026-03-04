@@ -23,17 +23,24 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         stt: true,
         id: true,
         name: true,
-        joinDate: true,
-        role: true,
+        joinDate: false,
+        role: false,
         target: true,
         revenue: true,
         appointments: true,
-        consultations: true
+        consultations: true,
+        todayRevenue: true,
+        todayAppointments: true,
+        todayConsultations: true
     });
     const [showColumnModal, setShowColumnModal] = useState(false);
     const [selectedUserForDetail, setSelectedUserForDetail] = useState<string | null>(null);
     const [selectedDateForDayDetail, setSelectedDateForDayDetail] = useState<string | null>(null);
     
+    // Target Editing State
+    const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
+    const [tempTargetValue, setTempTargetValue] = useState<string>('');
+
     // Reminders State
     const [reminders, setReminders] = useState<any[]>([]);
     const [showReminders, setShowReminders] = useState(false);
@@ -52,6 +59,45 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         const dept = departments.find(d => d.id === currentUser.departmentId);
         return dept ? dept.name : 'Team';
     }, [currentUser.departmentId, departments]);
+
+    // Handle Target Save
+    const handleSaveTarget = async (userId: string) => {
+        try {
+            const numValue = parseInt(tempTargetValue.replace(/\D/g, ''), 10) || 0;
+            const targetId = `${userId}_${selectedMonth.replace(/-/g, '_')}`;
+            
+            // Find existing target to preserve other values or create new
+            const existingTarget = targets.find(t => t.userId === userId && t.monthStr === selectedMonth);
+            
+            const newTarget: MonthlyTarget = {
+                id: targetId,
+                userId: userId,
+                monthStr: selectedMonth,
+                targetRevenue: numValue,
+                targetAppointment: existingTarget?.targetAppointment || 0,
+                targetConsultation: existingTarget?.targetConsultation || 0
+            };
+
+            await storageService.saveMonthlyTarget(newTarget);
+            
+            // Update local state
+            setTargets(prev => {
+                const idx = prev.findIndex(t => t.id === targetId);
+                if (idx >= 0) {
+                    const newTargets = [...prev];
+                    newTargets[idx] = newTarget;
+                    return newTargets;
+                } else {
+                    return [...prev, newTarget];
+                }
+            });
+            
+            setEditingTargetId(null);
+        } catch (error) {
+            console.error("Failed to save target", error);
+            alert("Lỗi khi lưu cam kết");
+        }
+    };
 
     // Check Reminders
     useEffect(() => {
@@ -159,6 +205,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
     // --- Derived Data for Selected Month ---
     const { monthStats, teamTotals } = useMemo(() => {
         const [year, month] = selectedMonth.split('-').map(Number);
+        const todayStr = new Date().toISOString().split('T')[0];
         
         const stats = subordinates.map((user, index) => {
             // Filter data for this user and month
@@ -175,7 +222,12 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 return r.userId === user.id && d.getMonth() + 1 === month && d.getFullYear() === year;
             });
 
+            const todayApps = userApps.filter(a => (a.reportedTime || a.date).startsWith(todayStr));
+            const todayCons = userCons.filter(c => c.date.startsWith(todayStr));
+            const todayRevs = userRevs.filter(r => r.date.startsWith(todayStr));
+
             const totalRevenue = userRevs.reduce((sum, r) => sum + r.amountCollected, 0);
+            const todayRevenue = todayRevs.reduce((sum, r) => sum + r.amountCollected, 0);
             
             // Find target for this user in this month
             const userTarget = targets.find(t => t.userId === user.id);
@@ -190,8 +242,11 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 rawRole: user.role,
                 target: targetRevenue,
                 revenue: totalRevenue,
+                todayRevenue: todayRevenue,
                 appointments: userApps.length,
-                consultations: userCons.length
+                todayAppointments: todayApps.length,
+                consultations: userCons.length,
+                todayConsultations: todayCons.length
             };
         });
 
@@ -357,14 +412,14 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 onMouseLeave={() => setTooltipData(null)}
                 className={`group relative bg-${colorClass}-50 p-3 rounded-lg border border-${colorClass}-100 hover:shadow-md transition-all hover:border-${colorClass}-300 hover:bg-${colorClass}-50/80`}
             >
-                <div className="flex justify-between items-start">
-                    <div>
-                        <p className="font-bold text-gray-900 text-sm">{item.customerName}</p>
-                        <p className="text-xs text-gray-600">
+                <div className="flex justify-between items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                        <p className="font-bold text-gray-900 text-sm truncate" title={item.customerName}>{item.customerName}</p>
+                        <p className="text-xs text-gray-600 truncate" title={type === 'APP' ? item.companyName : type === 'CONS' ? item.type : item.contractCode}>
                             {type === 'APP' ? item.companyName : type === 'CONS' ? item.type : item.contractCode}
                         </p>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
+                    <div className="flex flex-col items-end gap-1 shrink-0">
                         {type === 'APP' && <Badge variant="info">{item.status}</Badge>}
                         {type === 'REV' && (
                             <span className="text-xs font-black text-green-600">
@@ -486,8 +541,8 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
             {/* Summary Stats - Compact Row */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-                        <DollarSign size={18} />
+                    <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
+                        <DollarSign size={24} />
                     </div>
                     <div className="overflow-hidden">
                         <p className="text-[10px] font-bold text-gray-500 uppercase truncate">Doanh Thu</p>
@@ -498,8 +553,8 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
 
                 <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-green-50 flex items-center justify-center text-green-600 shrink-0">
-                        <Target size={18} />
+                    <div className="h-12 w-12 rounded-full bg-green-50 flex items-center justify-center text-green-600 shrink-0">
+                        <Target size={24} />
                     </div>
                     <div className="overflow-hidden">
                         <p className="text-[10px] font-bold text-gray-500 uppercase truncate">Cam Kết</p>
@@ -510,8 +565,8 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
 
                 <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
-                        <CalendarIcon size={18} />
+                    <div className="h-12 w-12 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
+                        <CalendarIcon size={24} />
                     </div>
                     <div className="overflow-hidden">
                         <p className="text-[10px] font-bold text-gray-500 uppercase truncate">Cuộc Hẹn</p>
@@ -520,8 +575,8 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
 
                 <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-purple-50 flex items-center justify-center text-purple-600 shrink-0">
-                        <Users size={18} />
+                    <div className="h-12 w-12 rounded-full bg-purple-50 flex items-center justify-center text-purple-600 shrink-0">
+                        <Users size={24} />
                     </div>
                     <div className="overflow-hidden">
                         <p className="text-[10px] font-bold text-gray-500 uppercase truncate">Tư Vấn</p>
@@ -553,13 +608,20 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                         {visibleColumns.revenue && <th className="px-3 py-2 text-right whitespace-nowrap bg-gray-100">Doanh thu</th>}
                                         {visibleColumns.appointments && <th className="px-3 py-2 text-center whitespace-nowrap bg-gray-100">Hẹn</th>}
                                         {visibleColumns.consultations && <th className="px-3 py-2 text-center whitespace-nowrap bg-gray-100">Tư vấn</th>}
+                                        {visibleColumns.todayRevenue && <th className="px-3 py-2 text-right whitespace-nowrap bg-green-50 text-green-700 border-l border-green-100">DT Hôm nay</th>}
+                                        {visibleColumns.todayAppointments && <th className="px-3 py-2 text-center whitespace-nowrap bg-blue-50 text-blue-700">Hẹn HN</th>}
+                                        {visibleColumns.todayConsultations && <th className="px-3 py-2 text-center whitespace-nowrap bg-purple-50 text-purple-700">TV HN</th>}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {monthStats.map((stat) => (
                                         <tr 
                                             key={stat.id} 
-                                            onClick={() => setSelectedUserForDetail(stat.id)}
+                                            onClick={() => {
+                                                if (editingTargetId !== stat.id) {
+                                                    setSelectedUserForDetail(stat.id);
+                                                }
+                                            }}
                                             className={`hover:bg-blue-50/50 transition-colors cursor-pointer text-xs ${selectedUserForDetail === stat.id ? 'bg-blue-50' : ''}`}
                                         >
                                             {visibleColumns.stt && <td className="px-3 py-2.5 text-center font-medium text-gray-500">{stat.stt}</td>}
@@ -571,20 +633,66 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                                     {stat.role}
                                                 </span>
                                             </td>}
-                                            {visibleColumns.target && <td className="px-3 py-2.5 text-right font-mono text-gray-600 whitespace-nowrap">
-                                                {new Intl.NumberFormat('vi-VN').format(stat.target)}
+                                            {visibleColumns.target && <td className="px-3 py-2.5 text-right font-mono text-gray-600 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                                {editingTargetId === stat.id ? (
+                                                    <div className="flex items-center gap-1 justify-end">
+                                                        <input 
+                                                            type="text" 
+                                                            value={tempTargetValue}
+                                                            onChange={(e) => {
+                                                                // Format as currency while typing
+                                                                const val = e.target.value.replace(/\D/g, '');
+                                                                setTempTargetValue(new Intl.NumberFormat('vi-VN').format(parseInt(val || '0')));
+                                                            }}
+                                                            className="w-24 text-right text-xs border border-blue-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                            autoFocus
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') handleSaveTarget(stat.id);
+                                                                if (e.key === 'Escape') setEditingTargetId(null);
+                                                            }}
+                                                        />
+                                                        <button onClick={() => handleSaveTarget(stat.id)} className="text-green-600 hover:text-green-800"><Eye size={14}/></button>
+                                                        <button onClick={() => setEditingTargetId(null)} className="text-red-500 hover:text-red-700"><X size={14}/></button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="group flex items-center justify-end gap-2">
+                                                        <span>{new Intl.NumberFormat('vi-VN').format(stat.target)}</span>
+                                                        <button 
+                                                            onClick={() => {
+                                                                setEditingTargetId(stat.id);
+                                                                setTempTargetValue(new Intl.NumberFormat('vi-VN').format(stat.target));
+                                                            }}
+                                                            className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-opacity"
+                                                        >
+                                                            <FileText size={12} />
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </td>}
-                                            {visibleColumns.revenue && <td className="px-3 py-2.5 text-right font-bold text-green-600 font-mono whitespace-nowrap">
+                                            {visibleColumns.revenue && <td className="px-3 py-2.5 text-right font-bold text-gray-800 font-mono whitespace-nowrap">
                                                 {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stat.revenue)}
                                             </td>}
                                             {visibleColumns.appointments && <td className="px-3 py-2.5 text-center">
-                                                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.appointments > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.appointments > 0 ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     {stat.appointments}
                                                 </span>
                                             </td>}
                                             {visibleColumns.consultations && <td className="px-3 py-2.5 text-center">
-                                                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.consultations > 0 ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.consultations > 0 ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     {stat.consultations}
+                                                </span>
+                                            </td>}
+                                            {visibleColumns.todayRevenue && <td className="px-3 py-2.5 text-right font-bold text-green-600 font-mono whitespace-nowrap bg-green-50/30 border-l border-green-50">
+                                                {stat.todayRevenue > 0 ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stat.todayRevenue) : '-'}
+                                            </td>}
+                                            {visibleColumns.todayAppointments && <td className="px-3 py-2.5 text-center bg-blue-50/30">
+                                                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.todayAppointments > 0 ? 'bg-blue-100 text-blue-700' : 'text-gray-300'}`}>
+                                                    {stat.todayAppointments > 0 ? stat.todayAppointments : '-'}
+                                                </span>
+                                            </td>}
+                                            {visibleColumns.todayConsultations && <td className="px-3 py-2.5 text-center bg-purple-50/30">
+                                                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.todayConsultations > 0 ? 'bg-purple-100 text-purple-700' : 'text-gray-300'}`}>
+                                                    {stat.todayConsultations > 0 ? stat.todayConsultations : '-'}
                                                 </span>
                                             </td>}
                                         </tr>
@@ -646,20 +754,24 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                         className={`bg-white min-h-[60px] p-1 hover:bg-gray-50 transition-colors group relative cursor-pointer ${isToday ? 'bg-blue-50/30' : ''}`}
                                     >
                                         <div className="text-right mb-1">
-                                            <span className={`text-[10px] font-bold ${isToday ? 'bg-blue-600 text-white px-1 py-0.5 rounded-full' : 'text-gray-400'}`}>
+                                            <span className={`inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded-full ${isToday ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}>
                                                 {day.day}
                                             </span>
                                         </div>
-                                        <div className="space-y-0.5">
-                                            {displayEvents.slice(0, 3).map((evt: any, idx: number) => (
-                                                <div key={`${evt.id}-${idx}`} className={`w-full h-1.5 rounded-full ${
-                                                    evt.type === 'APP' ? 'bg-blue-400' : 
-                                                    evt.type === 'CONS' ? 'bg-purple-400' : 'bg-green-400'
-                                                }`} title={`${evt.type === 'APP' ? 'Hẹn' : evt.type === 'CONS' ? 'Tư vấn' : 'Doanh thu'}: ${evt.customerName} (${evt.user})`}></div>
-                                            ))}
-                                            {displayEvents.length > 3 && (
-                                                <div className="text-[8px] text-gray-400 text-center leading-none">
-                                                    +{displayEvents.length - 3}
+                                        <div className="flex flex-col gap-1 mt-1 px-0.5">
+                                            {displayEvents.filter((e: any) => e.type === 'APP').length > 0 && (
+                                                <div className="bg-blue-500 text-white text-[9px] font-bold px-1 py-0.5 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'APP').length} Cuộc hẹn`}>
+                                                    {displayEvents.filter((e: any) => e.type === 'APP').length} Hẹn
+                                                </div>
+                                            )}
+                                            {displayEvents.filter((e: any) => e.type === 'CONS').length > 0 && (
+                                                <div className="bg-purple-500 text-white text-[9px] font-bold px-1 py-0.5 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn`}>
+                                                    {displayEvents.filter((e: any) => e.type === 'CONS').length} TV
+                                                </div>
+                                            )}
+                                            {displayEvents.filter((e: any) => e.type === 'REV').length > 0 && (
+                                                <div className="bg-green-500 text-white text-[9px] font-bold px-1 py-0.5 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'REV').length} Doanh thu`}>
+                                                    {displayEvents.filter((e: any) => e.type === 'REV').length} DT
                                                 </div>
                                             )}
                                         </div>
@@ -693,8 +805,11 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 {key === 'role' && 'Chức vụ'}
                                 {key === 'target' && 'Cam kết'}
                                 {key === 'revenue' && 'Doanh thu'}
+                                {key === 'todayRevenue' && 'Doanh thu hôm nay'}
                                 {key === 'appointments' && 'Cuộc hẹn'}
+                                {key === 'todayAppointments' && 'Cuộc hẹn hôm nay'}
                                 {key === 'consultations' && 'Tư vấn'}
+                                {key === 'todayConsultations' && 'Tư vấn hôm nay'}
                             </span>
                         </label>
                     ))}
