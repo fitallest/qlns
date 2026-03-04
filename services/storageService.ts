@@ -178,7 +178,8 @@ export const storageService = {
 
   // --- MONTHLY TARGETS ---
   saveMonthlyTarget: async (target: MonthlyTarget) => {
-      await setDoc(doc(db, COLS.TARGETS, target.id), target);
+      const cleanTarget = Object.fromEntries(Object.entries(target).filter(([_, v]) => v !== undefined)) as MonthlyTarget;
+      await setDoc(doc(db, COLS.TARGETS, cleanTarget.id), cleanTarget);
   },
   
   getMonthlyTarget: async (userId: string, monthStr: string): Promise<MonthlyTarget | null> => {
@@ -207,18 +208,21 @@ export const storageService = {
       return snap.docs.map(d => mapDoc(d) as Department);
   },
   addDepartment: async (item: Department) => {
-      await setDoc(doc(db, COLS.DEPTS, item.id), item);
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as Department;
+      await setDoc(doc(db, COLS.DEPTS, cleanItem.id), cleanItem);
   },
   updateDepartment: async (item: Department) => {
-      await updateDoc(doc(db, COLS.DEPTS, item.id), { ...item });
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as Department;
+      await updateDoc(doc(db, COLS.DEPTS, cleanItem.id), { ...cleanItem });
   },
   // NEW: Migrate Department ID and Cascade Update Children
   migrateDepartmentId: async (oldId: string, newDeptData: Department) => {
       const batch = writeBatch(db);
 
       // 1. Create New Department
-      const newDeptRef = doc(db, COLS.DEPTS, newDeptData.id);
-      batch.set(newDeptRef, newDeptData);
+      const cleanNewDeptData = Object.fromEntries(Object.entries(newDeptData).filter(([_, v]) => v !== undefined)) as Department;
+      const newDeptRef = doc(db, COLS.DEPTS, cleanNewDeptData.id);
+      batch.set(newDeptRef, cleanNewDeptData);
 
       // 2. Find and Update Child Departments (where parentId == oldId)
       const childDeptQuery = query(collection(db, COLS.DEPTS), where("parentId", "==", oldId));
@@ -270,10 +274,12 @@ export const storageService = {
   addUser: async (item: User) => {
       const check = await getDoc(doc(db, COLS.USERS, item.id));
       if (check.exists()) throw new Error("Mã nhân viên đã tồn tại");
-      await setDoc(doc(db, COLS.USERS, item.id), item);
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as User;
+      await setDoc(doc(db, COLS.USERS, cleanItem.id), cleanItem);
   },
   updateUser: async (item: User) => {
-      await updateDoc(doc(db, COLS.USERS, item.id), { ...item });
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as User;
+      await updateDoc(doc(db, COLS.USERS, cleanItem.id), { ...cleanItem });
   },
   deleteUser: async (id: string) => {
       if (id === 'ADMIN') throw new Error("Không thể xóa Admin chính");
@@ -286,12 +292,14 @@ export const storageService = {
       return snap.docs.map(d => mapDoc(d) as Appointment);
   },
   addAppointment: async (item: Appointment, actor?: {id: string, name: string}) => {
-      await setDoc(doc(db, COLS.APPS, item.id), item);
-      await logActivity(actor, 'TẠO', 'HẸN', item.id, `Khách hàng: ${item.customerName}, SĐT: ${item.phone}`);
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as Appointment;
+      await setDoc(doc(db, COLS.APPS, cleanItem.id), cleanItem);
+      await logActivity(actor, 'TẠO', 'HẸN', cleanItem.id, `Khách hàng: ${cleanItem.customerName}, SĐT: ${cleanItem.phone}`);
   },
   updateAppointment: async (item: Appointment, actor?: {id: string, name: string}) => {
-      await updateDoc(doc(db, COLS.APPS, item.id), { ...item });
-      await logActivity(actor, 'CẬP NHẬT', 'HẸN', item.id, `Cập nhật thông tin cuộc hẹn với ${item.customerName}`);
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as Appointment;
+      await updateDoc(doc(db, COLS.APPS, cleanItem.id), { ...cleanItem });
+      await logActivity(actor, 'CẬP NHẬT', 'HẸN', cleanItem.id, `Cập nhật thông tin cuộc hẹn với ${cleanItem.customerName}`);
   },
   deleteAppointment: async (id: string, actor?: {id: string, name: string}) => {
       await deleteDoc(doc(db, COLS.APPS, id));
@@ -304,12 +312,14 @@ export const storageService = {
       return snap.docs.map(d => mapDoc(d) as Consultation);
   },
   addConsultation: async (item: Consultation, actor?: {id: string, name: string}) => {
-      await setDoc(doc(db, COLS.CONSULTS, item.id), item);
-      await logActivity(actor, 'TẠO', 'TƯ VẤN', item.id, `Khách hàng: ${item.customerName}, Loại: ${item.type}`);
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as Consultation;
+      await setDoc(doc(db, COLS.CONSULTS, cleanItem.id), cleanItem);
+      await logActivity(actor, 'TẠO', 'TƯ VẤN', cleanItem.id, `Khách hàng: ${cleanItem.customerName}, Loại: ${cleanItem.type}`);
   },
   updateConsultation: async (item: Consultation, actor?: {id: string, name: string}) => {
-      await updateDoc(doc(db, COLS.CONSULTS, item.id), { ...item });
-      await logActivity(actor, 'CẬP NHẬT', 'TƯ VẤN', item.id, `Cập nhật phiếu tư vấn của ${item.customerName}`);
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as Consultation;
+      await updateDoc(doc(db, COLS.CONSULTS, cleanItem.id), { ...cleanItem });
+      await logActivity(actor, 'CẬP NHẬT', 'TƯ VẤN', cleanItem.id, `Cập nhật phiếu tư vấn của ${cleanItem.customerName}`);
   },
   deleteConsultation: async (id: string, actor?: {id: string, name: string}) => {
       await deleteDoc(doc(db, COLS.CONSULTS, id));
@@ -322,13 +332,15 @@ export const storageService = {
       return snap.docs.map(d => mapDoc(d) as Revenue);
   },
   addRevenue: async (item: Revenue, actor?: {id: string, name: string}) => {
-      await setDoc(doc(db, COLS.REVENUES, item.id), item);
-      await logActivity(actor, 'TẠO', 'DOANH THU', item.id, `HĐ: ${item.contractCode}, Số tiền: ${item.amountCollected}`);
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as Revenue;
+      await setDoc(doc(db, COLS.REVENUES, cleanItem.id), cleanItem);
+      await logActivity(actor, 'TẠO', 'DOANH THU', cleanItem.id, `HĐ: ${cleanItem.contractCode}, Số tiền: ${cleanItem.amountCollected}`);
       // NOTE: Project creation is now handled in the UI to ensure full data (name, phone) is captured.
   },
   updateRevenue: async (item: Revenue, actor?: {id: string, name: string}) => {
-      await updateDoc(doc(db, COLS.REVENUES, item.id), { ...item });
-      await logActivity(actor, 'CẬP NHẬT', 'DOANH THU', item.id, `HĐ: ${item.contractCode}, Cập nhật số tiền/thông tin`);
+      const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as Revenue;
+      await updateDoc(doc(db, COLS.REVENUES, cleanItem.id), { ...cleanItem });
+      await logActivity(actor, 'CẬP NHẬT', 'DOANH THU', cleanItem.id, `HĐ: ${cleanItem.contractCode}, Cập nhật số tiền/thông tin`);
   },
   deleteRevenue: async (id: string, actor?: {id: string, name: string}) => {
       await deleteDoc(doc(db, COLS.REVENUES, id));
@@ -346,7 +358,8 @@ export const storageService = {
       
       if (querySnapshot.empty) {
           const safeId = `PROJ_${item.contractCode.replace(/\W/g, '')}_${Date.now()}`;
-          await setDoc(doc(db, COLS.PROJECTS, safeId), item);
+          const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as ProjectProfile;
+          await setDoc(doc(db, COLS.PROJECTS, safeId), cleanItem);
       }
   },
   updateProject: async (item: ProjectProfile, actor?: {id: string, name: string}, changeDetail?: string) => {
@@ -354,9 +367,10 @@ export const storageService = {
       const snap = await getDocs(q);
       if (!snap.empty) {
           const docId = snap.docs[0].id;
-          await updateDoc(doc(db, COLS.PROJECTS, docId), { ...item });
+          const cleanItem = Object.fromEntries(Object.entries(item).filter(([_, v]) => v !== undefined)) as ProjectProfile;
+          await updateDoc(doc(db, COLS.PROJECTS, docId), { ...cleanItem });
           if (actor) {
-              await logActivity(actor, 'CẬP NHẬT', 'DỰ ÁN', docId, changeDetail || `Cập nhật hồ sơ dự án ${item.contractCode}`);
+              await logActivity(actor, 'CẬP NHẬT', 'DỰ ÁN', docId, changeDetail || `Cập nhật hồ sơ dự án ${cleanItem.contractCode}`);
           }
       }
   },
@@ -378,7 +392,8 @@ export const storageService = {
       return snap.docs.map(d => mapDoc(d) as Message);
   },
   sendMessage: async (msg: Message) => {
-      await setDoc(doc(db, COLS.MESSAGES, msg.id), msg);
+      const cleanMsg = Object.fromEntries(Object.entries(msg).filter(([_, v]) => v !== undefined)) as Message;
+      await setDoc(doc(db, COLS.MESSAGES, cleanMsg.id), cleanMsg);
   },
   markMessageRead: async (msgId: string) => {
       await updateDoc(doc(db, COLS.MESSAGES, msgId), { isRead: true });
@@ -389,7 +404,7 @@ export const storageService = {
     const q = query(collection(db, COLS.APPS), where("phone", "==", phone));
     const snap = await getDocs(q);
     const apps = snap.docs.map(d => mapDoc(d) as Appointment);
-    const found = apps.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    const found = apps.sort((a, b) => new Date(b.reportedTime || b.date).getTime() - new Date(a.reportedTime || a.date).getTime())[0];
     
     if (found) {
         const userDoc = await getDoc(doc(db, COLS.USERS, found.userId));
