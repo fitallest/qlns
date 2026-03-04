@@ -43,11 +43,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
   // --- DATE FILTER STATE (Default: Current Month) ---
   const [startDate, setStartDate] = useState(() => {
       const date = new Date();
-      return new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0];
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      return `${yyyy}-${mm}-01`;
   });
   const [endDate, setEndDate] = useState(() => {
       const date = new Date();
-      return new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().split('T')[0];
+      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      const yyyy = lastDay.getFullYear();
+      const mm = String(lastDay.getMonth() + 1).padStart(2, '0');
+      const dd = String(lastDay.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
   });
 
   // --- MULTI-LEVEL FILTER STATE ---
@@ -772,7 +778,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
 
   return (
-    <div className="space-y-6 animate-fadeIn pb-12 relative">
+    <div className="space-y-4 animate-fadeIn pb-12 relative max-w-[1600px] mx-auto px-2 sm:px-4 md:px-6">
       {undoState && (
           <div className="fixed bottom-6 right-6 z-50 animate-bounce">
               <div className="bg-red-600 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4">
@@ -786,20 +792,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
           </div>
       )}
 
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
-            <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight leading-none">BẢNG ĐIỀU KHIỂN </h1>
+            <h1 className="text-2xl sm:text-3xl font-black text-gray-900 uppercase tracking-tight leading-none">BẢNG ĐIỀU KHIỂN </h1>
             <p className="text-sm text-gray-400 font-bold uppercase mt-1">Phạm vi: {ROLE_LABELS[manager.role]}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-            <Button onClick={() => setMsgModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100 shadow-lg rounded-xl"><Send size={18} className="mr-2"/> THÔNG BÁO NHÓM</Button>
-            <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200">
-                <button onClick={() => setActiveTab('dashboard')} className={`px-5 py-2 text-xs font-black uppercase rounded-lg transition-all ${activeTab === 'dashboard' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Tổng quan</button>
-                <button onClick={() => setActiveTab('personal')} className={`px-5 py-2 text-xs font-black uppercase rounded-lg transition-all ${activeTab === 'personal' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Cá nhân</button>
-                <button onClick={() => setActiveTab('staff')} className={`px-5 py-2 text-xs font-black uppercase rounded-lg transition-all ${activeTab === 'staff' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Nhân sự</button>
-                <button onClick={() => setActiveTab('chat')} className={`px-5 py-2 text-xs font-black uppercase rounded-lg transition-all ${activeTab === 'chat' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Hộp thư</button>
-                <button onClick={() => setActiveTab('depts')} className={`px-5 py-2 text-xs font-black uppercase rounded-lg transition-all ${activeTab === 'depts' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Phòng ban</button>
-                <button onClick={() => setActiveTab('logs')} className={`px-5 py-2 text-xs font-black uppercase rounded-lg transition-all ${activeTab === 'logs' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Hoạt động</button>
+            <Button onClick={() => setMsgModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100 shadow-lg rounded-xl w-full sm:w-auto"><Send size={18} className="mr-2"/> THÔNG BÁO NHÓM</Button>
+            <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200 overflow-x-auto max-w-full">
+                <button onClick={() => setActiveTab('dashboard')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'dashboard' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Tổng quan</button>
+                <button onClick={() => setActiveTab('personal')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'personal' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Cá nhân</button>
+                <button onClick={() => setActiveTab('staff')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'staff' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Nhân sự</button>
+                <button onClick={() => setActiveTab('chat')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'chat' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Hộp thư</button>
+                <button onClick={() => setActiveTab('depts')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'depts' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Phòng ban</button>
+                <button onClick={() => setActiveTab('logs')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'logs' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Hoạt động</button>
             </div>
         </div>
       </div>
@@ -956,8 +962,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
       )}
 
       {activeTab === 'chat' && (
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 h-[700px] flex overflow-hidden">
-              <div className="w-1/3 border-r border-gray-100 bg-gray-50 flex flex-col">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 h-[calc(100vh-200px)] min-h-[500px] flex overflow-hidden relative">
+              {/* User List - Hidden on mobile if chat selected */}
+              <div className={`w-full md:w-1/3 border-r border-gray-100 bg-gray-50 flex flex-col absolute md:relative z-10 h-full transition-transform duration-300 ${selectedChatUser ? '-translate-x-full md:translate-x-0' : 'translate-x-0'}`}>
                   <div className="p-4 font-black text-gray-800 border-b uppercase text-sm tracking-tight flex items-center gap-2"><MessageSquare size={16} className="text-blue-500"/> Danh sách tin nhắn</div>
                   <div className="p-4 border-b bg-white space-y-3">
                       <div className="relative">
@@ -977,45 +984,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
                       ) : (
                           chatUsers.map(u => (
                               <div key={u.id} onClick={() => setSelectedChatUser(u.id)} className={`p-4 cursor-pointer border-b border-gray-100 hover:bg-white transition-all flex items-center gap-3 ${selectedChatUser === u.id ? 'bg-white border-l-4 border-l-blue-600' : ''}`}>
-                                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">{u.name.substring(0, 1)}</div>
+                                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs shrink-0">{u.name.substring(0, 1)}</div>
                                   <div className="flex-1 overflow-hidden">
                                       <div className="font-black text-sm text-gray-800 truncate uppercase">{u.name}</div>
                                       <div className="text-[10px] text-gray-400 font-bold uppercase">{ROLE_LABELS[u.role]}</div>
                                   </div>
+                                  <ChevronRight size={16} className="text-gray-300 md:hidden"/>
                               </div>
                           ))
                       )}
                   </div>
               </div>
-              <div className="w-2/3 flex flex-col bg-[#f8fafc]">
+              
+              {/* Chat Window - Full width on mobile when selected */}
+              <div className={`w-full md:w-2/3 flex flex-col bg-[#f8fafc] absolute md:relative h-full transition-transform duration-300 ${selectedChatUser ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}>
                   {selectedChatUser ? (
                       <>
                         <div className="p-4 border-b flex justify-between items-center bg-white shadow-sm z-10">
-                            <span className="font-black text-gray-800 uppercase tracking-tight">Hội thoại: {allUsers.find(u => u.id === selectedChatUser)?.name}</span>
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setSelectedChatUser(null)} className="md:hidden p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                                <div>
+                                    <span className="font-black text-gray-800 uppercase tracking-tight block leading-tight">Hội thoại: {allUsers.find(u => u.id === selectedChatUser)?.name}</span>
+                                    <span className="text-[10px] text-gray-400 md:hidden">Nhấn quay lại để xem danh sách</span>
+                                </div>
+                            </div>
                             <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6">
                             {currentConversation.map(msg => (
                                 <div key={msg.id} className={`flex ${msg.senderId === manager.id ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[80%] rounded-2xl p-4 shadow-sm ${msg.senderId === manager.id ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none border border-gray-100'}`}>
-                                        <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                                    <div className={`max-w-[85%] md:max-w-[80%] rounded-2xl p-3 md:p-4 shadow-sm ${msg.senderId === manager.id ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none border border-gray-100'}`}>
+                                        <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap break-words">{msg.content}</div>
                                         <div className={`text-[9px] mt-2 font-black uppercase tracking-widest ${msg.senderId === manager.id ? 'text-blue-200 text-right' : 'text-gray-400'}`}>{new Date(msg.timestamp).toLocaleString('vi-VN')}</div>
                                     </div>
                                 </div>
                             ))}
                             <div ref={chatEndRef}></div>
                         </div>
-                        <div className="p-4 bg-white border-t border-gray-100">
+                        <div className="p-3 md:p-4 bg-white border-t border-gray-100">
                              <div className="flex gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
-                                  <input className="flex-1 bg-transparent border-none px-4 py-2 outline-none text-sm font-medium" placeholder="Nhập tin nhắn trả lời..." value={adminChatInput} onChange={e => setAdminChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdminReply()} />
-                                  <button onClick={handleAdminReply} className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 active:scale-95 transition-all shadow-lg"><Send size={18}/></button>
+                                  <input className="flex-1 bg-transparent border-none px-3 md:px-4 py-2 outline-none text-sm font-medium" placeholder="Nhập tin nhắn trả lời..." value={adminChatInput} onChange={e => setAdminChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdminReply()} />
+                                  <button onClick={handleAdminReply} className="bg-blue-600 text-white p-2 md:p-3 rounded-xl hover:bg-blue-700 active:scale-95 transition-all shadow-lg"><Send size={18}/></button>
                              </div>
                         </div>
                       </>
                   ) : (
-                      <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
+                      <div className="flex-1 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
                           <MessageSquare size={64} className="mb-4 opacity-10"/>
-                          <p className="font-black text-xs uppercase tracking-widest">Chọn nhân sự để bắt đầu trao đổi</p>
+                          <p className="font-black text-xs uppercase tracking-widest">Chọn nhân sự từ danh sách bên trái để bắt đầu trao đổi</p>
                       </div>
                   )}
               </div>
@@ -1025,15 +1041,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
       {/* ACTIVITY LOGS TAB */}
       {activeTab === 'logs' && (
           <Card title="Nhật ký hoạt động cá nhân (200 bản ghi gần nhất)">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto relative">
                   <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-gray-500 uppercase bg-gray-50 font-bold">
+                      <thead className="text-xs text-gray-500 uppercase bg-gray-50 font-bold sticky top-0 z-10 shadow-sm">
                           <tr>
-                              <th className="px-6 py-3">Thời gian</th>
-                              <th className="px-6 py-3">Người thực hiện</th>
-                              <th className="px-6 py-3">Thao tác</th>
-                              <th className="px-6 py-3">Đối tượng</th>
-                              <th className="px-6 py-3">Chi tiết</th>
+                              <th className="px-6 py-3 bg-gray-50">Thời gian</th>
+                              <th className="px-6 py-3 bg-gray-50">Người thực hiện</th>
+                              <th className="px-6 py-3 bg-gray-50">Thao tác</th>
+                              <th className="px-6 py-3 bg-gray-50">Đối tượng</th>
+                              <th className="px-6 py-3 bg-gray-50">Chi tiết</th>
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -1083,15 +1099,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
                 <Button onClick={openAddUser} className="rounded-xl w-full md:w-auto px-6 font-black uppercase tracking-tight shadow-md">+ Tạo tài khoản mới</Button>
              </div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-[600px] overflow-y-auto relative">
             <table className="min-w-full divide-y divide-gray-200 text-xs">
-              <thead>
-                <tr className="bg-gray-100 text-gray-500 font-black uppercase tracking-widest">
-                  <th className="px-6 py-4 text-left w-[40%]">Họ tên & Cấu trúc</th>
-                  <th className="px-6 py-4 text-left">Mã NV</th>
-                  <th className="px-6 py-4 text-left">Đơn vị quản lý</th>
-                  <th className="px-6 py-4 text-right">Doanh thu (Lifetime)</th>
-                  <th className="px-6 py-4 text-right">Thao tác</th>
+              <thead className="bg-gray-100 text-gray-500 font-black uppercase tracking-widest sticky top-0 z-10 shadow-sm">
+                <tr>
+                  <th className="px-6 py-4 text-left w-[40%] bg-gray-100">Họ tên & Cấu trúc</th>
+                  <th className="px-6 py-4 text-left bg-gray-100">Mã NV</th>
+                  <th className="px-6 py-4 text-left bg-gray-100">Đơn vị quản lý</th>
+                  <th className="px-6 py-4 text-right bg-gray-100">Doanh thu (Lifetime)</th>
+                  <th className="px-6 py-4 text-right bg-gray-100">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
