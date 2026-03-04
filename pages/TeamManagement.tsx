@@ -202,29 +202,59 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         fetchData();
     }, [currentUser, selectedMonth]);
 
+    // --- Helper: Vietnam Timezone Date ---
+    const getVNDate = useCallback((dateStr: string | undefined): Date | null => {
+        if (!dateStr) return null;
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return null;
+        // Convert to VN time string then parse back to preserve components relative to VN
+        const vnString = d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
+        return new Date(vnString);
+    }, []);
+
     // --- Derived Data for Selected Month ---
     const { monthStats, teamTotals } = useMemo(() => {
         const [year, month] = selectedMonth.split('-').map(Number);
-        const todayStr = new Date().toISOString().split('T')[0];
+        
+        // Get Today in VN Time
+        const now = new Date();
+        const vnNowString = now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
+        const vnNow = new Date(vnNowString);
+        const todayStr = `${vnNow.getFullYear()}-${String(vnNow.getMonth() + 1).padStart(2, '0')}-${String(vnNow.getDate()).padStart(2, '0')}`;
         
         const stats = subordinates.map((user, index) => {
-            // Filter data for this user and month
+            // Filter data for this user and month using VN Time
             const userApps = appointments.filter(a => {
-                const d = new Date(a.reportedTime || a.date);
-                return a.userId === user.id && d.getMonth() + 1 === month && d.getFullYear() === year;
+                const d = getVNDate(a.reportedTime || a.date);
+                return a.userId === user.id && d && d.getMonth() + 1 === month && d.getFullYear() === year;
             });
             const userCons = consultations.filter(c => {
-                const d = new Date(c.date);
-                return c.userId === user.id && d.getMonth() + 1 === month && d.getFullYear() === year;
+                const d = getVNDate(c.date);
+                return c.userId === user.id && d && d.getMonth() + 1 === month && d.getFullYear() === year;
             });
             const userRevs = revenues.filter(r => {
-                const d = new Date(r.date);
-                return r.userId === user.id && d.getMonth() + 1 === month && d.getFullYear() === year;
+                const d = getVNDate(r.date);
+                return r.userId === user.id && d && d.getMonth() + 1 === month && d.getFullYear() === year;
             });
 
-            const todayApps = userApps.filter(a => (a.reportedTime || a.date).startsWith(todayStr));
-            const todayCons = userCons.filter(c => c.date.startsWith(todayStr));
-            const todayRevs = userRevs.filter(r => r.date.startsWith(todayStr));
+            const todayApps = userApps.filter(a => {
+                const d = getVNDate(a.reportedTime || a.date);
+                if (!d) return false;
+                const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                return dStr === todayStr;
+            });
+            const todayCons = userCons.filter(c => {
+                const d = getVNDate(c.date);
+                if (!d) return false;
+                const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                return dStr === todayStr;
+            });
+            const todayRevs = userRevs.filter(r => {
+                const d = getVNDate(r.date);
+                if (!d) return false;
+                const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                return dStr === todayStr;
+            });
 
             const totalRevenue = userRevs.reduce((sum, r) => sum + r.amountCollected, 0);
             const todayRevenue = todayRevs.reduce((sum, r) => sum + r.amountCollected, 0);
@@ -258,7 +288,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         }), { revenue: 0, target: 0, appointments: 0, consultations: 0 });
 
         return { monthStats: stats, teamTotals: totals };
-    }, [subordinates, appointments, consultations, revenues, selectedMonth, targets]);
+    }, [subordinates, appointments, consultations, revenues, selectedMonth, targets, getVNDate]);
 
     // --- Calendar Data ---
     const calendarDays = useMemo(() => {
@@ -266,13 +296,25 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         const daysInMonth = new Date(year, month, 0).getDate();
         const days = [];
 
+        // Get Today in VN Time for highlighting
+        const now = new Date();
+        const vnNowString = now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
+        const vnNow = new Date(vnNowString);
+        const todayStr = `${vnNow.getFullYear()}-${String(vnNow.getMonth() + 1).padStart(2, '0')}-${String(vnNow.getDate()).padStart(2, '0')}`;
+
         for (let i = 1; i <= daysInMonth; i++) {
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
             
-            // Find events for this day from ALL subordinates
-            const dayApps = appointments.filter(a => (a.reportedTime || a.date).startsWith(dateStr) && subordinates.some(u => u.id === a.userId));
-            const dayCons = consultations.filter(c => c.date.startsWith(dateStr) && subordinates.some(u => u.id === c.userId));
-            const dayRevs = revenues.filter(r => r.date.startsWith(dateStr) && subordinates.some(u => u.id === r.userId));
+            // Filter events using VN Time
+            const checkDate = (itemDateStr: string | undefined) => {
+                const d = getVNDate(itemDateStr);
+                if (!d) return false;
+                return d.getFullYear() === year && d.getMonth() + 1 === month && d.getDate() === i;
+            };
+
+            const dayApps = appointments.filter(a => checkDate(a.reportedTime || a.date) && subordinates.some(u => u.id === a.userId));
+            const dayCons = consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId));
+            const dayRevs = revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId));
 
             days.push({
                 date: dateStr,
@@ -285,7 +327,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
             });
         }
         return days;
-    }, [selectedMonth, appointments, consultations, revenues, subordinates]);
+    }, [selectedMonth, appointments, consultations, revenues, subordinates, getVNDate]);
 
     // --- Helper: Render Event Item for Day Detail ---
     const renderEventItem = useCallback((item: any, type: 'APP' | 'CONS' | 'REV') => {
@@ -405,6 +447,11 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
             });
         };
 
+        // Format time using VN Timezone
+        const dateObj = getVNDate(item.reportedTime || item.date);
+        const timeStr = dateObj ? dateObj.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '--:--';
+        const dateStr = dateObj ? dateObj.toLocaleDateString('vi-VN') : '--/--/----';
+
         return (
             <div 
                 key={item.id} 
@@ -446,17 +493,12 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                     </span>
                     <span className="text-gray-500 flex items-center gap-1">
                         <Clock size={12}/>
-                        {type === 'REV' 
-                            ? new Date(item.date).toLocaleDateString('vi-VN')
-                            : type === 'APP' 
-                                ? new Date(item.reportedTime || item.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})
-                                : new Date(item.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})
-                        }
+                        {type === 'REV' ? dateStr : timeStr}
                     </span>
                 </div>
             </div>
         );
-    }, [subordinates]);
+    }, [subordinates, getVNDate]);
 
     if (loading) return <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
 
@@ -720,8 +762,8 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                             </h3>
                             <div className="flex gap-2 text-[10px] font-medium">
                                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Hẹn</div>
-                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500"></span> TV</div>
-                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> DT</div>
+                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500"></span> Tư vấn</div>
+                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Doanh thu</div>
                             </div>
                         </div>
 
@@ -760,17 +802,17 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                         </div>
                                         <div className="flex flex-col gap-1 mt-1 px-0.5">
                                             {displayEvents.filter((e: any) => e.type === 'APP').length > 0 && (
-                                                <div className="bg-blue-500 text-white text-[9px] font-bold px-1 py-0.5 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'APP').length} Cuộc hẹn`}>
+                                                <div className="bg-blue-500 text-white text-[10px] font-bold px-1 py-1 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'APP').length} Cuộc hẹn`}>
                                                     {displayEvents.filter((e: any) => e.type === 'APP').length} Hẹn
                                                 </div>
                                             )}
                                             {displayEvents.filter((e: any) => e.type === 'CONS').length > 0 && (
-                                                <div className="bg-purple-500 text-white text-[9px] font-bold px-1 py-0.5 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn`}>
-                                                    {displayEvents.filter((e: any) => e.type === 'CONS').length} TV
+                                                <div className="bg-purple-500 text-white text-[10px] font-bold px-1 py-1 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn`}>
+                                                    {displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn
                                                 </div>
                                             )}
                                             {displayEvents.filter((e: any) => e.type === 'REV').length > 0 && (
-                                                <div className="bg-green-500 text-white text-[9px] font-bold px-1 py-0.5 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'REV').length} Doanh thu`}>
+                                                <div className="bg-green-500 text-white text-[10px] font-bold px-1 py-1 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'REV').length} Doanh thu`}>
                                                     {displayEvents.filter((e: any) => e.type === 'REV').length} DT
                                                 </div>
                                             )}
@@ -840,22 +882,40 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                     <span className="w-2 h-2 rounded-full bg-blue-600"></span> CUỘC HẸN ({selectedMonth})
                                 </h5>
                                 <div className="bg-gray-50 rounded-lg p-3 max-h-[300px] overflow-y-auto space-y-2">
-                                    {appointments.filter(a => a.userId === selectedUserForDetail && (a.reportedTime || a.date).startsWith(selectedMonth)).length === 0 ? (
+                                    {appointments.filter(a => {
+                                        const d = getVNDate(a.reportedTime || a.date);
+                                        if (!d) return false;
+                                        const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                        return a.userId === selectedUserForDetail && mStr === selectedMonth;
+                                    }).length === 0 ? (
                                         <p className="text-xs text-gray-400 italic text-center py-4">Không có cuộc hẹn nào</p>
                                     ) : (
-                                        appointments.filter(a => a.userId === selectedUserForDetail && (a.reportedTime || a.date).startsWith(selectedMonth))
-                                        .sort((a,b) => new Date(a.reportedTime || a.date).getTime() - new Date(b.reportedTime || b.date).getTime())
-                                        .map(app => (
-                                            <div key={app.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-xs">
-                                                <div className="font-bold text-gray-800">{new Date(app.reportedTime || app.date).toLocaleDateString('vi-VN')} {new Date(app.reportedTime || app.date).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
-                                                <div className="text-blue-600 font-medium">{app.customerName}</div>
-                                                <div className="text-gray-500">{app.companyName}</div>
-                                                <div className="text-gray-500 mt-1">Hẹn lúc: {new Date(app.date).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
-                                                <div className="mt-1 flex justify-between items-center">
-                                                    <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px]">{app.status}</span>
+                                        appointments.filter(a => {
+                                            const d = getVNDate(a.reportedTime || a.date);
+                                            if (!d) return false;
+                                            const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                            return a.userId === selectedUserForDetail && mStr === selectedMonth;
+                                        })
+                                        .sort((a,b) => {
+                                            const da = getVNDate(a.reportedTime || a.date);
+                                            const db = getVNDate(b.reportedTime || b.date);
+                                            return (da?.getTime() || 0) - (db?.getTime() || 0);
+                                        })
+                                        .map(app => {
+                                            const d = getVNDate(app.reportedTime || app.date);
+                                            const dateStr = d ? d.toLocaleDateString('vi-VN') : '';
+                                            const timeStr = d ? d.toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : '';
+                                            return (
+                                                <div key={app.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-xs">
+                                                    <div className="font-bold text-gray-800">{dateStr} {timeStr}</div>
+                                                    <div className="text-blue-600 font-medium">{app.customerName}</div>
+                                                    <div className="text-gray-500">{app.companyName}</div>
+                                                    <div className="mt-1 flex justify-between items-center">
+                                                        <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px]">{app.status}</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     )}
                                 </div>
                             </div>
@@ -866,19 +926,37 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                     <span className="w-2 h-2 rounded-full bg-purple-600"></span> TƯ VẤN ({selectedMonth})
                                 </h5>
                                 <div className="bg-gray-50 rounded-lg p-3 max-h-[300px] overflow-y-auto space-y-2">
-                                    {consultations.filter(c => c.userId === selectedUserForDetail && c.date.startsWith(selectedMonth)).length === 0 ? (
+                                    {consultations.filter(c => {
+                                        const d = getVNDate(c.date);
+                                        if (!d) return false;
+                                        const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                        return c.userId === selectedUserForDetail && mStr === selectedMonth;
+                                    }).length === 0 ? (
                                         <p className="text-xs text-gray-400 italic text-center py-4">Không có phiếu tư vấn nào</p>
                                     ) : (
-                                        consultations.filter(c => c.userId === selectedUserForDetail && c.date.startsWith(selectedMonth))
-                                        .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-                                        .map(cons => (
-                                            <div key={cons.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-xs">
-                                                <div className="font-bold text-gray-800">{new Date(cons.date).toLocaleDateString('vi-VN')}</div>
-                                                <div className="text-purple-600 font-medium">{cons.customerName}</div>
-                                                <div className="text-gray-500">{cons.type}</div>
-                                                <div className="mt-1 text-[10px] text-gray-400 truncate">{cons.notes}</div>
-                                            </div>
-                                        ))
+                                        consultations.filter(c => {
+                                            const d = getVNDate(c.date);
+                                            if (!d) return false;
+                                            const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                            return c.userId === selectedUserForDetail && mStr === selectedMonth;
+                                        })
+                                        .sort((a,b) => {
+                                            const da = getVNDate(a.date);
+                                            const db = getVNDate(b.date);
+                                            return (da?.getTime() || 0) - (db?.getTime() || 0);
+                                        })
+                                        .map(cons => {
+                                            const d = getVNDate(cons.date);
+                                            const dateStr = d ? d.toLocaleDateString('vi-VN') : '';
+                                            return (
+                                                <div key={cons.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-xs">
+                                                    <div className="font-bold text-gray-800">{dateStr}</div>
+                                                    <div className="text-purple-600 font-medium">{cons.customerName}</div>
+                                                    <div className="text-gray-500">{cons.type}</div>
+                                                    <div className="mt-1 text-[10px] text-gray-400 truncate">{cons.notes}</div>
+                                                </div>
+                                            );
+                                        })
                                     )}
                                 </div>
                             </div>
@@ -889,19 +967,26 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
 
             {/* Day Detail Modal */}
             {selectedDateForDayDetail && (
-                <Modal isOpen={!!selectedDateForDayDetail} onClose={() => setSelectedDateForDayDetail(null)} title={`LỊCH NGÀY ${new Date(selectedDateForDayDetail).toLocaleDateString('vi-VN')}`} size="md">
-                    <div className="space-y-4 pb-4">
+                <Modal isOpen={!!selectedDateForDayDetail} onClose={() => setSelectedDateForDayDetail(null)} title={`LỊCH NGÀY ${new Date(selectedDateForDayDetail).toLocaleDateString('vi-VN')}`} size="lg">
+                    <div className="pb-4">
                         {(() => {
-                            const dayApps = appointments.filter(a => (a.reportedTime || a.date).startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === a.userId));
-                            const dayCons = consultations.filter(c => c.date.startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === c.userId));
-                            const dayRevs = revenues.filter(r => r.date.startsWith(selectedDateForDayDetail) && subordinates.some(u => u.id === r.userId));
+                            const checkDate = (itemDateStr: string | undefined) => {
+                                const d = getVNDate(itemDateStr);
+                                if (!d) return false;
+                                const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                return dStr === selectedDateForDayDetail;
+                            };
+
+                            const dayApps = appointments.filter(a => checkDate(a.reportedTime || a.date) && subordinates.some(u => u.id === a.userId));
+                            const dayCons = consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId));
+                            const dayRevs = revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId));
                             
                             if (dayApps.length === 0 && dayCons.length === 0 && dayRevs.length === 0) {
                                 return <p className="text-center text-gray-400 italic py-8">Không có hoạt động nào trong ngày này</p>;
                             }
 
                             return (
-                                <>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {dayApps.length > 0 && (
                                         <div>
                                             <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-2 text-sm uppercase">
@@ -934,7 +1019,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                             </div>
                                         </div>
                                     )}
-                                </>
+                                </div>
                             );
                         })()}
                     </div>
