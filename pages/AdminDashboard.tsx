@@ -338,7 +338,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
   const dashboardStats = useMemo(() => {
       // 1. Personal Stats
       const myRevenues = allRevenues.filter(r => r.userId === manager.id && isInRange(r.date));
-      const myAppointments = allAppointments.filter(a => a.userId === manager.id && isInRange(a.date));
+      const myAppointments = allAppointments.filter(a => a.userId === manager.id && isInRange(a.reportedTime || a.date));
       const myConsultations = allConsultations.filter(c => c.userId === manager.id && isInRange(c.date)); // Added
       const myTotalRevenue = myRevenues.reduce((s, r) => s + r.amountCollected, 0); 
       
@@ -375,7 +375,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
       }
       const validTargetIds = new Set([...targetUserIds]); 
       const teamRevenues = allRevenues.filter(r => validTargetIds.has(r.userId) && isInRange(r.date));
-      const teamAppointments = allAppointments.filter(a => validTargetIds.has(a.userId) && isInRange(a.date));
+      const teamAppointments = allAppointments.filter(a => validTargetIds.has(a.userId) && isInRange(a.reportedTime || a.date));
       const teamConsultations = allConsultations.filter(c => validTargetIds.has(c.userId) && isInRange(c.date)); // Added
       const teamTotalRevenue = teamRevenues.reduce((s, r) => s + r.amountCollected, 0);
 
