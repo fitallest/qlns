@@ -101,6 +101,7 @@ export interface Appointment {
   source: string;
   status: AppointmentStatus;
   date: string; 
+  reportedTime?: string; // Thời gian báo hẹn
   location: string; 
   addressDetail?: string; 
   notes?: string;
