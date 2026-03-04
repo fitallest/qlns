@@ -33,9 +33,16 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
 
   // Filters (Timeline)
   const [searchTerm, setSearchTerm] = useState('');
-  const [dateRange, setDateRange] = useState({
-      start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().substring(0, 10),
-      end: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().substring(0, 10)
+  const [dateRange, setDateRange] = useState(() => {
+      const date = new Date();
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(yyyy, date.getMonth() + 1, 0);
+      const dd = String(lastDay.getDate()).padStart(2, '0');
+      return {
+          start: `${yyyy}-${mm}-01`,
+          end: `${yyyy}-${mm}-${dd}`
+      };
   });
 
   // Filters (Projects)
@@ -43,6 +50,23 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   const [projSortOrder, setProjSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [projDateRange, setProjDateRange] = useState({ start: '', end: '' });
 
+  // Helper functions for local date/time
+  const getLocalDatetimeString = () => {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const hh = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+  };
+  const getLocalDateString = () => {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+  };
 
   // Modals state
   const [isAppModalOpen, setAppModalOpen] = useState(false);
@@ -327,7 +351,10 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   };
 
   // --- Statistics Calculation ---
-  const currentMonthStart = new Date().toISOString().substring(0, 7);
+  const currentMonthStart = (() => {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  })();
   const totalRevenueLifetime = revenues.reduce((sum, r) => sum + r.amountCollected, 0) + (user.initialRevenue || 0);
   
   // Filter data by range for KPI
@@ -444,7 +471,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
       const wb = (window as any).XLSX.utils.book_new();
       (window as any).XLSX.utils.book_append_sheet(wb, ws, "Danh sách dự án");
       (window as any).XLSX.utils.book_append_sheet(wb, ws, "Danh sách dự án");
-      (window as any).XLSX.writeFile(wb, `Du_lieu_du_an_${user.id}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      (window as any).XLSX.writeFile(wb, `Du_lieu_du_an_${user.id}_${getLocalDateString()}.xlsx`);
   };
 
   // Helper to render items
@@ -538,7 +565,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1600px] mx-auto px-2 sm:px-4 md:px-6 pb-12">
         {/* Top Banner */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-xl shadow-blue-200 relative overflow-hidden">
             <div className="relative z-10 flex flex-col md:flex-row justify-between items-end gap-4">
@@ -649,14 +676,14 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                         <input type="date" className="bg-transparent border-none text-xs font-bold text-gray-700 outline-none p-1" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
                     </div>
                     <div className="flex gap-2 w-full md:w-auto">
-                        {!isViewOnly && <button onClick={() => { setEditingApp({ date: new Date().toISOString().slice(0, 16), status: AppointmentStatus.NEW }); setAppModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-blue-700 transition-all flex items-center justify-center gap-1 shadow-lg shadow-blue-100"><Plus size={14} className="bg-white/20 rounded-full p-0.5"/> Hẹn mới</button>}
-                        {!isViewOnly && <button onClick={() => { setEditingCons({ date: new Date().toISOString().slice(0, 16), type: ConsultationType.NEW, supportType: SupportType.SOLO }); setConsModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-white text-green-600 border border-green-200 rounded-lg text-xs font-bold uppercase hover:bg-green-50 transition-all flex items-center justify-center gap-1"><Plus size={14}/> Tư vấn</button>}
-                        {!isViewOnly && <button onClick={() => { setEditingRev({ date: new Date().toISOString().slice(0, 10), type: RevenueType.NEW }); setRevModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-white text-orange-600 border border-orange-200 rounded-lg text-xs font-bold uppercase hover:bg-orange-50 transition-all flex items-center justify-center gap-1"><Plus size={14}/> Thu tiền</button>}
+                        {!isViewOnly && <button onClick={() => { setEditingApp({ date: getLocalDatetimeString(), status: AppointmentStatus.NEW }); setAppModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-blue-700 transition-all flex items-center justify-center gap-1 shadow-lg shadow-blue-100"><Plus size={14} className="bg-white/20 rounded-full p-0.5"/> Hẹn mới</button>}
+                        {!isViewOnly && <button onClick={() => { setEditingCons({ date: getLocalDatetimeString(), type: ConsultationType.NEW, supportType: SupportType.SOLO }); setConsModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-white text-green-600 border border-green-200 rounded-lg text-xs font-bold uppercase hover:bg-green-50 transition-all flex items-center justify-center gap-1"><Plus size={14}/> Tư vấn</button>}
+                        {!isViewOnly && <button onClick={() => { setEditingRev({ date: getLocalDateString(), type: RevenueType.NEW }); setRevModalOpen(true); }} className="flex-1 md:flex-none px-4 py-2 bg-white text-orange-600 border border-orange-200 rounded-lg text-xs font-bold uppercase hover:bg-orange-50 transition-all flex items-center justify-center gap-1"><Plus size={14}/> Thu tiền</button>}
                     </div>
                  </div>
 
                  {/* Timeline List */}
-                 <div>
+                 <div className="max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
                      {Object.keys(mergedData).map(dateKey => {
                          const items = mergedData[dateKey];
                          const dateObj = new Date(dateKey);
@@ -758,7 +785,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ user, isVi
                  </div>
 
                  {/* Project List - Accordion Style */}
-                 <div className="space-y-4">
+                 <div className="space-y-4 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
                      {filteredProjects.length === 0 ? (
                          <div className="text-center py-12 bg-white rounded-xl border-2 border-dashed border-gray-200 text-gray-400 italic">
                              {projSearchTerm || projDateRange.start ? 'Không tìm thấy dự án phù hợp với bộ lọc' : 'Chưa có hồ sơ dự án'}
