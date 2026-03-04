@@ -164,7 +164,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center p-4 text-center sm:p-0">
         <div className="fixed inset-0 bg-gray-600 bg-opacity-60 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
-        <div className={`relative transform overflow-hidden rounded-xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full ${sizeClasses[size]}`}>
+        <div className={`relative transform overflow-hidden rounded-xl bg-white text-left shadow-2xl transition-all w-full sm:my-8 sm:w-full ${sizeClasses[size]}`}>
           <div className="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4 h-full flex flex-col">
             <div className="flex justify-between items-center mb-5 border-b pb-3">
                  <h3 className="text-xl font-bold leading-6 text-gray-900">{title}</h3>
