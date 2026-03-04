@@ -59,7 +59,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
 
         const check = () => {
             const now = new Date();
-            const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+            const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; // YYYY-MM-DD
             const currentHour = now.getHours();
             
             let newReminders: any[] = [];
@@ -404,7 +404,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
     if (loading) return <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
 
     return (
-        <div className="space-y-4 animate-fadeIn pb-12">
+        <div className="space-y-4 animate-fadeIn pb-12 max-w-[1600px] mx-auto px-2 sm:px-4 md:px-6">
             {/* Compact Header */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -538,19 +538,19 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 Nhân sự & Hiệu suất
                             </h3>
                         </div>
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto relative custom-scrollbar">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-100 text-gray-600 font-bold uppercase text-[10px] sticky top-0 z-10">
+                                <thead className="bg-gray-100 text-gray-600 font-bold uppercase text-[10px] sticky top-0 z-10 shadow-sm">
                                     <tr>
-                                        {visibleColumns.stt && <th className="px-3 py-2 text-center w-10">STT</th>}
-                                        {visibleColumns.id && <th className="px-3 py-2">Mã NV</th>}
-                                        {visibleColumns.name && <th className="px-3 py-2">Họ Tên</th>}
-                                        {visibleColumns.joinDate && <th className="px-3 py-2 whitespace-nowrap">Ngày vào</th>}
-                                        {visibleColumns.role && <th className="px-3 py-2 whitespace-nowrap">Chức vụ</th>}
-                                        {visibleColumns.target && <th className="px-3 py-2 text-right whitespace-nowrap">Cam kết</th>}
-                                        {visibleColumns.revenue && <th className="px-3 py-2 text-right whitespace-nowrap">Doanh thu</th>}
-                                        {visibleColumns.appointments && <th className="px-3 py-2 text-center whitespace-nowrap">Hẹn</th>}
-                                        {visibleColumns.consultations && <th className="px-3 py-2 text-center whitespace-nowrap">Tư vấn</th>}
+                                        {visibleColumns.stt && <th className="px-3 py-2 text-center w-10 bg-gray-100">STT</th>}
+                                        {visibleColumns.id && <th className="px-3 py-2 bg-gray-100">Mã NV</th>}
+                                        {visibleColumns.name && <th className="px-3 py-2 bg-gray-100">Họ Tên</th>}
+                                        {visibleColumns.joinDate && <th className="px-3 py-2 whitespace-nowrap bg-gray-100">Ngày vào</th>}
+                                        {visibleColumns.role && <th className="px-3 py-2 whitespace-nowrap bg-gray-100">Chức vụ</th>}
+                                        {visibleColumns.target && <th className="px-3 py-2 text-right whitespace-nowrap bg-gray-100">Cam kết</th>}
+                                        {visibleColumns.revenue && <th className="px-3 py-2 text-right whitespace-nowrap bg-gray-100">Doanh thu</th>}
+                                        {visibleColumns.appointments && <th className="px-3 py-2 text-center whitespace-nowrap bg-gray-100">Hẹn</th>}
+                                        {visibleColumns.consultations && <th className="px-3 py-2 text-center whitespace-nowrap bg-gray-100">Tư vấn</th>}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
@@ -633,7 +633,9 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                     ? day.events.filter((e: any) => e.userId === selectedUserForDetail)
                                     : day.events;
                                 
-                                const isToday = new Date().toISOString().startsWith(day.date);
+                                const today = new Date();
+                                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                                const isToday = todayStr === day.date;
 
                                 return (
                                     <div 
