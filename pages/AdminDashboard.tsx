@@ -33,6 +33,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
   const [allProjects, setAllProjects] = useState<ProjectProfile[]>([]);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [currentMonthTarget, setCurrentMonthTarget] = useState<MonthlyTarget | null>(null);
+  const [allTargets, setAllTargets] = useState<MonthlyTarget[]>([]);
   const [isTargetModalOpen, setTargetModalOpen] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Partial<MonthlyTarget>>({});
 
@@ -99,7 +100,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
       setLoading(true);
       const currentMonthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
       try {
-          const [u, d, r, a, cons, m, p, act, target] = await Promise.all([
+          const [u, d, r, a, cons, m, p, act, target, targets] = await Promise.all([
               storageService.getUsers(),
               storageService.getDepartments(),
               storageService.getRevenues(),
@@ -109,7 +110,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
               storageService.getProjects(),
               // Fetch only current user's activities
               storageService.getActivities(currentUser.id),
-              storageService.getMonthlyTarget(currentUser.id, currentMonthStart)
+              storageService.getMonthlyTarget(currentUser.id, currentMonthStart),
+              storageService.getTargetsByMonth(currentMonthStart)
           ]);
           setAllUsers(u);
           setDepartments(d);
@@ -120,6 +122,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
           setAllProjects(p);
           setActivities(act);
           setCurrentMonthTarget(target);
+          setAllTargets(targets);
       } catch (error) {
           console.error("Failed to load data", error);
       } finally {
@@ -360,12 +363,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
 
   // --- DASHBOARD DATA CALCULATION ---
   const dashboardStats = useMemo(() => {
+      // Helper to calculate revenue share
+      const getRevenueShare = (r: Revenue, uid: string) => {
+          const amount = Number(r.amountCollected) || 0;
+          const hasSupport = Boolean(r.supportId && String(r.supportId).trim() !== '');
+
+          if (r.userId === uid) {
+              return hasSupport ? amount / 2 : amount;
+          }
+          if (r.supportId === uid) {
+              return amount / 2;
+          }
+          return 0;
+      };
+
       // 1. Personal Stats
-      const myRevenues = allRevenues.filter(r => r.userId === manager.id && isInRange(r.date));
-      const myAppointments = allAppointments.filter(a => a.userId === manager.id && isInRange(a.reportedTime || a.date));
-      const myConsultations = allConsultations.filter(c => c.userId === manager.id && isInRange(c.date)); // Added
-      const myTotalRevenue = myRevenues.reduce((s, r) => s + r.amountCollected, 0); 
+      const myTotalRevenue = allRevenues
+          .filter(r => isInRange(r.date))
+          .reduce((sum, r) => sum + getRevenueShare(r, manager.id), 0);
       
+      const myAppointments = allAppointments.filter(a => a.userId === manager.id && isInRange(a.reportedTime || a.date));
+      const myConsultations = allConsultations.filter(c => c.userId === manager.id && isInRange(c.date));
+
       // 2. Team Stats (Hierarchical)
       let targetUserIds = new Set<string>();
       const scopeId = filterTeam || filterDept || filterGroup || filterRegion;
@@ -398,17 +417,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
           mySubordinates.forEach(u => { if(u.id !== manager.id) targetUserIds.add(u.id); });
       }
       const validTargetIds = new Set([...targetUserIds]); 
-      const teamRevenues = allRevenues.filter(r => validTargetIds.has(r.userId) && isInRange(r.date));
+      
+      const teamTotalRevenue = allRevenues
+          .filter(r => isInRange(r.date))
+          .reduce((sum, r) => {
+              let rSum = 0;
+              const amount = Number(r.amountCollected) || 0;
+              const hasSupport = Boolean(r.supportId && String(r.supportId).trim() !== '');
+
+              if (validTargetIds.has(r.userId)) {
+                  rSum += hasSupport ? amount / 2 : amount;
+              }
+              if (r.supportId && validTargetIds.has(r.supportId)) {
+                  rSum += amount / 2;
+              }
+              return sum + rSum;
+          }, 0);
+
       const teamAppointments = allAppointments.filter(a => validTargetIds.has(a.userId) && isInRange(a.reportedTime || a.date));
-      const teamConsultations = allConsultations.filter(c => validTargetIds.has(c.userId) && isInRange(c.date)); // Added
-      const teamTotalRevenue = teamRevenues.reduce((s, r) => s + r.amountCollected, 0);
+      const teamConsultations = allConsultations.filter(c => validTargetIds.has(c.userId) && isInRange(c.date));
 
       // 3. Top Employees Calculation
       
-      // A. Global (Whole Company) - Always correct
+      // A. Global (Whole Company)
       const empRevMapGlobal: Record<string, number> = {};
       allRevenues.filter(r => isInRange(r.date)).forEach(r => {
-          empRevMapGlobal[r.userId] = (empRevMapGlobal[r.userId] || 0) + r.amountCollected;
+          // Owner share
+          const ownerShare = r.supportId ? r.amountCollected / 2 : r.amountCollected;
+          empRevMapGlobal[r.userId] = (empRevMapGlobal[r.userId] || 0) + ownerShare;
+          
+          // Support share
+          if (r.supportId) {
+              const supportShare = r.amountCollected / 2;
+              empRevMapGlobal[r.supportId] = (empRevMapGlobal[r.supportId] || 0) + supportShare;
+          }
       });
       const topEmployeesGlobal = Object.entries(empRevMapGlobal)
         .map(([uid, val]) => ({ name: allUsers.find(u => u.id === uid)?.name || uid, value: val, id: uid }))
@@ -468,8 +510,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
       }
 
       const empRevMapLocal: Record<string, number> = {};
-      allRevenues.filter(r => regionTargetIds.has(r.userId) && isInRange(r.date)).forEach(r => {
-          empRevMapLocal[r.userId] = (empRevMapLocal[r.userId] || 0) + r.amountCollected;
+      Object.keys(empRevMapGlobal).forEach(uid => {
+          if (regionTargetIds.has(uid)) {
+              empRevMapLocal[uid] = empRevMapGlobal[uid];
+          }
       });
 
       const topEmployeesLocal = Object.entries(empRevMapLocal)
@@ -477,23 +521,74 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
         .sort((a,b) => b.value - a.value)
         .slice(0, 10);
 
-      const chartRevenues = [...myRevenues, ...teamRevenues];
+      // Chart Data
+      const chartTargetIds = new Set(validTargetIds);
+      chartTargetIds.add(manager.id);
+      
       const monthlyData: Record<string, number> = {};
-      chartRevenues.forEach(r => {
+      allRevenues.forEach(r => {
+          if (!isInRange(r.date)) return;
           const month = r.date.substring(0, 7);
-          monthlyData[month] = (monthlyData[month] || 0) + r.amountCollected;
+          let amount = 0;
+          if (chartTargetIds.has(r.userId)) {
+              amount += r.supportId ? r.amountCollected / 2 : r.amountCollected;
+          }
+          if (r.supportId && chartTargetIds.has(r.supportId)) {
+              amount += r.amountCollected / 2;
+          }
+          if (amount > 0) {
+              monthlyData[month] = (monthlyData[month] || 0) + amount;
+          }
       });
       const chartData = Object.keys(monthlyData).sort().map(k => ({ name: k, revenue: monthlyData[k] }));
       
       let conclusion = "Số liệu trong khoảng thời gian này.";
 
+      // 4. Full Employee Stats (Detailed Table)
+      const today = new Date().toISOString().split('T')[0];
+      const fullEmployeeStats = Array.from(validTargetIds).map(uid => {
+          const user = allUsers.find(u => u.id === uid);
+          const target = allTargets.find(t => t.userId === uid);
+          
+          // Revenue
+          const revenue = allRevenues
+              .filter(r => isInRange(r.date))
+              .reduce((sum, r) => sum + getRevenueShare(r, uid), 0);
+          
+          // Apps
+          const apps = allAppointments.filter(a => a.userId === uid && isInRange(a.reportedTime || a.date)).length;
+          
+          // Cons
+          const cons = allConsultations.filter(c => c.userId === uid && isInRange(c.date)).length;
+
+          // Today Stats
+          const revenueToday = allRevenues
+              .filter(r => r.date === today)
+              .reduce((sum, r) => sum + getRevenueShare(r, uid), 0);
+          
+          const appsToday = allAppointments.filter(a => a.userId === uid && (a.reportedTime || a.date).startsWith(today)).length;
+          const consToday = allConsultations.filter(c => c.userId === uid && c.date === today).length;
+
+          return {
+              id: uid,
+              name: user?.name || uid,
+              targetRevenue: target?.targetRevenue || 0,
+              revenue,
+              apps,
+              cons,
+              revenueToday,
+              appsToday,
+              consToday
+          };
+      }).sort((a, b) => b.revenue - a.revenue);
+
       return {
           personal: { revenue: myTotalRevenue, apps: myAppointments.length, cons: myConsultations.length, user: manager },
           team: { revenue: teamTotalRevenue, apps: teamAppointments.length, cons: teamConsultations.length, count: validTargetIds.size },
-          chartData, conclusion, topEmployeesGlobal, topEmployeesLocal
+          chartData, conclusion, topEmployeesGlobal, topEmployeesLocal, fullEmployeeStats
       };
 
-  }, [allRevenues, allAppointments, allConsultations, manager, filterUser, filterTeam, filterDept, filterGroup, filterRegion, mySubordinates, startDate, endDate, allUsers, departments]);
+  }, [allRevenues, allAppointments, allConsultations, manager, filterUser, filterTeam, filterDept, filterGroup, filterRegion, mySubordinates, startDate, endDate, allUsers, departments, allTargets]);
 
   const getCumulativeHeadcount = (deptId: string): number => {
       const uniqueUserIds = new Set<string>();
@@ -596,7 +691,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
   };
 
   const calculateTotalRevenue = (user: User) => {
-      const earned = allRevenues.filter(r => r.userId === user.id).reduce((s, r) => s + r.amountCollected, 0);
+      const earned = allRevenues.reduce((sum, r) => {
+          // If user is owner and there is support -> 50%
+          if (r.userId === user.id && r.supportId) {
+              return sum + (r.amountCollected / 2);
+          }
+          // If user is support -> 50%
+          if (r.supportId === user.id) {
+              return sum + (r.amountCollected / 2);
+          }
+          // If user is owner and no support -> 100%
+          if (r.userId === user.id && !r.supportId) {
+              return sum + r.amountCollected;
+          }
+          return sum;
+      }, 0);
       return earned + (user.initialRevenue || 0);
   };
 
@@ -959,7 +1068,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
                     </Card>
                     <Card className="border-t-4 border-t-green-500">
                         <div className="flex items-center justify-between">
-                            <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Doanh thu (Theo thời gian)</p><h3 className="text-2xl font-black text-green-600">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(dashboardStats.team.revenue)}</h3></div>
+                            <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">DT THỰC NHẬN (Theo thời gian)</p><h3 className="text-2xl font-black text-green-600">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(dashboardStats.team.revenue)}</h3></div>
                             <div className="bg-green-50 p-3 rounded-2xl text-green-600"><TrendingUp size={28}/></div>
                         </div>
                     </Card>
@@ -1032,6 +1141,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </Card>
+
+                 <Card className="mt-6 border-t-4 border-t-indigo-600">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-indigo-100 p-2.5 rounded-xl text-indigo-600 shadow-sm"><Activity size={24}/></div>
+                            <div>
+                                <h3 className="text-lg font-black text-gray-800 uppercase tracking-tight">NHÂN SỰ & HIỆU SUẤT</h3>
+                                <p className="text-xs text-gray-400 font-bold uppercase">Báo cáo chi tiết theo thời gian thực</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="bg-gray-50/50 text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                                    <th className="p-4 text-center w-12 font-black">STT</th>
+                                    <th className="p-4 text-left font-black">MÃ NV</th>
+                                    <th className="p-4 text-left font-black">HỌ TÊN</th>
+                                    <th className="p-4 text-right font-black text-gray-400">CAM KẾT</th>
+                                    <th className="p-4 text-right font-black text-blue-600">DT THỰC NHẬN</th>
+                                    <th className="p-4 text-center font-black text-purple-600">HẸN</th>
+                                    <th className="p-4 text-center font-black text-teal-600">TƯ VẤN</th>
+                                    <th className="p-4 text-right font-black border-l border-gray-100 bg-green-50/30 text-green-600">DT HÔM NAY</th>
+                                    <th className="p-4 text-center font-black bg-gray-50/30">HẸN HN</th>
+                                    <th className="p-4 text-center font-black bg-gray-50/30">TV HN</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50 bg-white">
+                                {dashboardStats.fullEmployeeStats.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={10} className="p-8 text-center text-gray-400 italic">Chưa có dữ liệu nhân sự phù hợp với bộ lọc</td>
+                                    </tr>
+                                ) : (
+                                    dashboardStats.fullEmployeeStats.map((emp, idx) => (
+                                        <tr key={emp.id} className="hover:bg-indigo-50/30 transition-colors group">
+                                            <td className="p-3 text-center font-bold text-gray-400 group-hover:text-indigo-500">{idx + 1}</td>
+                                            <td className="p-3 font-mono text-gray-500 font-medium">{emp.id}</td>
+                                            <td className="p-3 font-bold text-gray-700 group-hover:text-indigo-700">{emp.name}</td>
+                                            <td className="p-3 text-right text-gray-400 font-medium">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(emp.targetRevenue)}</td>
+                                            <td className="p-3 text-right font-black text-blue-600 text-sm">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(emp.revenue)}</td>
+                                            <td className="p-3 text-center font-bold text-purple-600">{emp.apps}</td>
+                                            <td className="p-3 text-center font-bold text-teal-600">{emp.cons}</td>
+                                            <td className="p-3 text-right font-black text-green-600 border-l border-gray-50 bg-green-50/10">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(emp.revenueToday)}</td>
+                                            <td className="p-3 text-center font-bold text-gray-600 bg-gray-50/10">{emp.appsToday}</td>
+                                            <td className="p-3 text-center font-bold text-gray-600 bg-gray-50/10">{emp.consToday}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </Card>
              </div>
