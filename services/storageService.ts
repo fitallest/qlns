@@ -399,6 +399,8 @@ export const storageService = {
       await updateDoc(doc(db, COLS.MESSAGES, msgId), { isRead: true });
   },
 
+
+
   // --- Helpers ---
   findGlobalAppointmentByPhone: async (phone: string): Promise<{ appointment: Appointment, creatorName: string } | null> => {
     const q = query(collection(db, COLS.APPS), where("phone", "==", phone));
