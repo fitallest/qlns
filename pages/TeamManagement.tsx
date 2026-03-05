@@ -223,6 +223,20 @@
             const vnNow = new Date(vnNowString);
             const todayStr = `${vnNow.getFullYear()}-${String(vnNow.getMonth() + 1).padStart(2, '0')}-${String(vnNow.getDate()).padStart(2, '0')}`;
             
+            // Helper to calculate revenue share
+            const getRevenueShare = (r: Revenue, uid: string) => {
+                const amount = Number(r.amountCollected) || 0;
+                const hasSupport = Boolean(r.supportId && String(r.supportId).trim() !== '');
+
+                if (r.userId === uid) {
+                    return hasSupport ? amount / 2 : amount;
+                }
+                if (r.supportId === uid) {
+                    return amount / 2;
+                }
+                return 0;
+            };
+
             const stats = subordinates.map((user, index) => {
                 // Filter data for this user and month using VN Time
                 const userApps = appointments.filter(a => {
@@ -235,7 +249,8 @@
                 });
                 const userRevs = revenues.filter(r => {
                     const d = getVNDate(r.date);
-                    return r.userId === user.id && d && d.getMonth() + 1 === month && d.getFullYear() === year;
+                    const isRelevant = (r.userId === user.id || r.supportId === user.id);
+                    return isRelevant && d && d.getMonth() + 1 === month && d.getFullYear() === year;
                 });
 
                 const todayApps = userApps.filter(a => {
@@ -257,8 +272,8 @@
                     return dStr === todayStr;
                 });
 
-                const totalRevenue = userRevs.reduce((sum, r) => sum + r.amountCollected, 0);
-                const todayRevenue = todayRevs.reduce((sum, r) => sum + r.amountCollected, 0);
+                const totalRevenue = userRevs.reduce((sum, r) => sum + getRevenueShare(r, user.id), 0);
+                const todayRevenue = todayRevs.reduce((sum, r) => sum + getRevenueShare(r, user.id), 0);
                 
                 // Find target for this user in this month
                 const userTarget = targets.find(t => t.userId === user.id);
