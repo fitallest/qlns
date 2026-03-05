@@ -36,6 +36,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
     const [showColumnModal, setShowColumnModal] = useState(false);
     const [selectedUserForDetail, setSelectedUserForDetail] = useState<string | null>(null);
     const [selectedDateForDayDetail, setSelectedDateForDayDetail] = useState<string | null>(null);
+    const [selectedCalendarType, setSelectedCalendarType] = useState<'RESULTS' | 'MEETINGS'>('RESULTS');
     
     // Target Editing State
     const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
@@ -46,7 +47,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
     const [showReminders, setShowReminders] = useState(false);
 
     // Tooltip State
-    const [tooltipData, setTooltipData] = useState<{ x: number, y: number, content: React.ReactNode } | null>(null);
+    const [tooltipData, setTooltipData] = useState<{ x: number, y: number, item: any, type: 'APP' | 'CONS' | 'REV' } | null>(null);
 
     // Month Selection (YYYY-MM)
     const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -290,7 +291,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         return { monthStats: stats, teamTotals: totals };
     }, [subordinates, appointments, consultations, revenues, selectedMonth, targets, getVNDate]);
 
-    // --- Calendar Data ---
+    // --- Calendar Data (Results) ---
     const calendarDays = useMemo(() => {
         const [year, month] = selectedMonth.split('-').map(Number);
         const daysInMonth = new Date(year, month, 0).getDate();
@@ -329,6 +330,131 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
         return days;
     }, [selectedMonth, appointments, consultations, revenues, subordinates, getVNDate]);
 
+    // --- Calendar Data (Meetings) ---
+    const meetingCalendarDays = useMemo(() => {
+        const [year, month] = selectedMonth.split('-').map(Number);
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const days = [];
+
+        for (let i = 1; i <= daysInMonth; i++) {
+            const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+            
+            const checkDate = (itemDateStr: string | undefined) => {
+                const d = getVNDate(itemDateStr);
+                if (!d) return false;
+                return d.getFullYear() === year && d.getMonth() + 1 === month && d.getDate() === i;
+            };
+
+            // Only filter Appointments based on 'date' (Appointment Time)
+            const dayApps = appointments.filter(a => checkDate(a.date) && subordinates.some(u => u.id === a.userId));
+            const dayCons = consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId));
+
+            days.push({
+                date: dateStr,
+                day: i,
+                events: [
+                    ...dayApps.map(a => ({ type: 'APP', ...a, user: subordinates.find(u => u.id === a.userId)?.name })),
+                    ...dayCons.map(c => ({ type: 'CONS', ...c, user: subordinates.find(u => u.id === c.userId)?.name }))
+                ]
+            });
+        }
+        return days;
+    }, [selectedMonth, appointments, subordinates, getVNDate]);
+
+    // --- Helper: Render Tooltip Content ---
+    const renderTooltipContent = useCallback((item: any, type: 'APP' | 'CONS' | 'REV') => {
+        let colorClass = '';
+        let icon = null;
+        let title = '';
+        
+        if (type === 'APP') {
+            colorClass = 'blue';
+            icon = <CalendarIcon size={14} />;
+            title = 'CUỘC HẸN';
+        } else if (type === 'CONS') {
+            colorClass = 'purple';
+            icon = <Users size={14} />;
+            title = 'TƯ VẤN';
+        } else {
+            colorClass = 'green';
+            icon = <DollarSign size={14} />;
+            title = 'DOANH THU';
+        }
+
+        let content = null;
+        if (type === 'APP') {
+            content = (
+                <div className="space-y-2 text-xs">
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
+                        <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
+                        <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><MapPin size={10}/> Đ/C:</span>
+                        <span className="col-span-2 font-medium text-gray-800">{item.addressDetail || item.location}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
+                        <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
+                    </div>
+                </div>
+            );
+        } else if (type === 'CONS') {
+            content = (
+                <div className="space-y-2 text-xs">
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
+                        <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
+                        <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><FileType size={10}/> Loại:</span>
+                        <span className="col-span-2 font-medium text-gray-800">{item.type}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
+                        <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
+                    </div>
+                </div>
+            );
+        } else {
+            content = (
+                <div className="space-y-2 text-xs">
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
+                        <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> HĐ:</span>
+                        <span className="col-span-2 font-medium text-gray-800">{item.contractCode}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        <span className="text-gray-500 flex items-center gap-1"><DollarSign size={10}/> Tiền:</span>
+                        <span className="col-span-2 font-black text-green-600">
+                            {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.amountCollected)}
+                        </span>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="w-72 bg-white/95 backdrop-blur-sm p-3 rounded-xl shadow-2xl border border-gray-200 z-[70] animate-fadeIn ring-1 ring-black/5">
+                <h4 className={`font-bold text-${colorClass}-700 border-b border-${colorClass}-100 pb-2 mb-2 text-xs flex items-center gap-2 uppercase`}>
+                    {icon} CHI TIẾT {title}
+                </h4>
+                {content}
+            </div>
+        );
+    }, []);
+
     // --- Helper: Render Event Item for Day Detail ---
     const renderEventItem = useCallback((item: any, type: 'APP' | 'CONS' | 'REV') => {
         const user = subordinates.find(u => u.id === item.userId);
@@ -362,93 +488,28 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
             // Check right edge
             if (x + tooltipWidth > window.innerWidth) {
                 x = rect.left - tooltipWidth - 10;
+                
+                // If switching to left makes it go off-screen, try bottom
+                if (x < 10) {
+                    x = rect.left;
+                    y = rect.bottom + 5;
+                }
             }
             
-            // Check bottom edge (simple check)
+            // Check bottom edge
             if (y + tooltipHeight > window.innerHeight) {
                 y = window.innerHeight - tooltipHeight - 10;
+                // If moving up makes it go off-top, clamp to top
+                if (y < 10) y = 10;
             }
 
-            let content = null;
-            if (type === 'APP') {
-                content = (
-                    <div className="space-y-2 text-xs">
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
-                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><MapPin size={10}/> Đ/C:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.addressDetail || item.location}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
-                            <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
-                        </div>
-                    </div>
-                );
-            } else if (type === 'CONS') {
-                content = (
-                    <div className="space-y-2 text-xs">
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
-                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><FileType size={10}/> Loại:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.type}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
-                            <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
-                        </div>
-                    </div>
-                );
-            } else {
-                content = (
-                    <div className="space-y-2 text-xs">
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
-                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> HĐ:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.contractCode}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><DollarSign size={10}/> Tiền:</span>
-                            <span className="col-span-2 font-black text-green-600">
-                                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.amountCollected)}
-                            </span>
-                        </div>
-                    </div>
-                );
-            }
-
-            setTooltipData({
-                x,
-                y,
-                content: (
-                    <div className="w-72 bg-white/95 backdrop-blur-sm p-3 rounded-xl shadow-2xl border border-gray-200 z-[70] animate-fadeIn ring-1 ring-black/5">
-                        <h4 className={`font-bold text-${colorClass}-700 border-b border-${colorClass}-100 pb-2 mb-2 text-xs flex items-center gap-2 uppercase`}>
-                            {icon} CHI TIẾT {title}
-                        </h4>
-                        {content}
-                    </div>
-                )
-            });
+            setTooltipData({ x, y, item, type });
         };
 
         // Format time using VN Timezone
-        const dateObj = getVNDate(item.reportedTime || item.date);
+        // If in MEETINGS calendar and it's an appointment, strictly use 'date'
+        const timeSource = (selectedCalendarType === 'MEETINGS' && type === 'APP') ? item.date : (item.reportedTime || item.date);
+        const dateObj = getVNDate(timeSource);
         const timeStr = dateObj ? dateObj.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '--:--';
         const dateStr = dateObj ? dateObj.toLocaleDateString('vi-VN') : '--/--/----';
 
@@ -498,7 +559,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
             </div>
         );
-    }, [subordinates, getVNDate]);
+    }, [subordinates, getVNDate, selectedCalendarType]);
 
     if (loading) return <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
 
@@ -627,9 +688,9 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Statistics Table - Takes 2/3 width on large screens */}
-                <div className="lg:col-span-2 flex flex-col">
+            <div className="flex flex-col gap-6">
+                {/* Statistics Table - Full width */}
+                <div className="flex flex-col">
                     <Card className="p-0 overflow-hidden border border-gray-200 shadow-sm flex-1">
                         <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
                             <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 uppercase">
@@ -752,13 +813,14 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                     </Card>
                 </div>
 
-                {/* Calendar View - Takes 1/3 width on large screens */}
-                <div className="lg:col-span-1 flex flex-col">
-                    <Card className="p-4 border border-gray-200 shadow-sm flex-1">
+                {/* Calendar View - 2 Columns */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Results Calendar */}
+                    <Card className="p-4 border border-gray-200 shadow-sm">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 uppercase">
                                 <CalendarIcon size={16} className="text-blue-600"/> 
-                                Lịch làm việc
+                                Kết quả mỗi ngày
                             </h3>
                             <div className="flex gap-2 text-[10px] font-medium">
                                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Hẹn</div>
@@ -792,8 +854,11 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 return (
                                     <div 
                                         key={day.date} 
-                                        onClick={() => setSelectedDateForDayDetail(day.date)}
-                                        className={`bg-white min-h-[60px] p-1 hover:bg-gray-50 transition-colors group relative cursor-pointer ${isToday ? 'bg-blue-50/30' : ''}`}
+                                        onClick={() => {
+                                            setSelectedDateForDayDetail(day.date);
+                                            setSelectedCalendarType('RESULTS');
+                                        }}
+                                        className={`bg-white min-h-[80px] p-1 hover:bg-gray-50 transition-colors group relative cursor-pointer ${isToday ? 'bg-blue-50/30' : ''}`}
                                     >
                                         <div className="text-right mb-1">
                                             <span className={`inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded-full ${isToday ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}>
@@ -802,17 +867,17 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                         </div>
                                         <div className="flex flex-col gap-1 mt-1 px-0.5">
                                             {displayEvents.filter((e: any) => e.type === 'APP').length > 0 && (
-                                                <div className="bg-blue-500 text-white text-[10px] font-bold px-1 py-1 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'APP').length} Cuộc hẹn`}>
+                                                <div className="bg-blue-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.type === 'APP').length} Cuộc hẹn`}>
                                                     {displayEvents.filter((e: any) => e.type === 'APP').length} Hẹn
                                                 </div>
                                             )}
                                             {displayEvents.filter((e: any) => e.type === 'CONS').length > 0 && (
-                                                <div className="bg-purple-500 text-white text-[10px] font-bold px-1 py-1 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn`}>
+                                                <div className="bg-purple-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn`}>
                                                     {displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn
                                                 </div>
                                             )}
                                             {displayEvents.filter((e: any) => e.type === 'REV').length > 0 && (
-                                                <div className="bg-green-500 text-white text-[10px] font-bold px-1 py-1 rounded text-center leading-none shadow-sm" title={`${displayEvents.filter((e: any) => e.type === 'REV').length} Doanh thu`}>
+                                                <div className="bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.type === 'REV').length} Doanh thu`}>
                                                     {displayEvents.filter((e: any) => e.type === 'REV').length} DT
                                                 </div>
                                             )}
@@ -823,6 +888,76 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                         </div>
                         <div className="mt-3 text-xs text-gray-500 text-center italic">
                             * Chọn ngày hoặc nhân viên để xem chi tiết
+                        </div>
+                    </Card>
+
+                    {/* Meeting Calendar */}
+                    <Card className="p-4 border border-gray-200 shadow-sm">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 uppercase">
+                                <CalendarIcon size={16} className="text-orange-600"/> 
+                                Lịch gặp khách hàng
+                            </h3>
+                            <div className="flex gap-2 text-[10px] font-medium">
+                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Hẹn</div>
+                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500"></span> Tư vấn</div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                            {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(day => (
+                                <div key={day} className="bg-gray-50 p-1 text-center text-[10px] font-bold text-gray-500 uppercase">
+                                    {day}
+                                </div>
+                            ))}
+                            
+                            {/* Padding for start of month */}
+                            {Array.from({ length: new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1, 1).getDay() }).map((_, i) => (
+                                <div key={`pad-${i}`} className="bg-white min-h-[60px]"></div>
+                            ))}
+
+                            {meetingCalendarDays.map((day) => {
+                                // Filter events if a user is selected
+                                const displayEvents = selectedUserForDetail 
+                                    ? day.events.filter((e: any) => e.userId === selectedUserForDetail)
+                                    : day.events;
+                                
+                                const today = new Date();
+                                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                                const isToday = todayStr === day.date;
+
+                                return (
+                                    <div 
+                                        key={day.date} 
+                                        onClick={() => {
+                                            setSelectedDateForDayDetail(day.date);
+                                            setSelectedCalendarType('MEETINGS');
+                                        }}
+                                        className={`bg-white min-h-[80px] p-1 hover:bg-gray-50 transition-colors group relative cursor-pointer ${isToday ? 'bg-blue-50/30' : ''}`}
+                                    >
+                                        <div className="text-right mb-1">
+                                            <span className={`inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded-full ${isToday ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}>
+                                                {day.day}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col gap-1 mt-1 px-0.5">
+                                            {displayEvents.filter((e: any) => e.type === 'APP').length > 0 && (
+                                                <div className="bg-blue-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.type === 'APP').length} Cuộc hẹn`}>
+                                                    {displayEvents.filter((e: any) => e.type === 'APP').length} Hẹn
+                                                </div>
+                                            )}
+                                            {displayEvents.filter((e: any) => e.type === 'CONS').length > 0 && (
+                                                <div className="bg-purple-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn`}>
+                                                    {displayEvents.filter((e: any) => e.type === 'CONS').length} Tư vấn
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="mt-3 text-xs text-gray-500 text-center italic">
+                            * Chọn ngày để xem chi tiết
                         </div>
                     </Card>
                 </div>
@@ -977,9 +1112,22 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                                 return dStr === selectedDateForDayDetail;
                             };
 
-                            const dayApps = appointments.filter(a => checkDate(a.reportedTime || a.date) && subordinates.some(u => u.id === a.userId));
-                            const dayCons = consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId));
-                            const dayRevs = revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId));
+                            const dayApps = appointments.filter(a => {
+                                // For MEETINGS calendar, strictly use 'date' (Appointment Time)
+                                // For RESULTS calendar, use 'reportedTime' (Reported Time) falling back to 'date'
+                                const dateToCheck = selectedCalendarType === 'MEETINGS' ? a.date : (a.reportedTime || a.date);
+                                return checkDate(dateToCheck) && subordinates.some(u => u.id === a.userId);
+                            });
+                            
+                            // Only show Consultations and Revenue for RESULTS calendar
+                            // For MEETINGS, also show Consultations now
+                            const dayCons = (selectedCalendarType === 'RESULTS' || selectedCalendarType === 'MEETINGS')
+                                ? consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId))
+                                : [];
+                                
+                            const dayRevs = selectedCalendarType === 'RESULTS'
+                                ? revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId))
+                                : [];
                             
                             if (dayApps.length === 0 && dayCons.length === 0 && dayRevs.length === 0) {
                                 return <p className="text-center text-gray-400 italic py-8">Không có hoạt động nào trong ngày này</p>;
@@ -1035,7 +1183,7 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onB
                     className="fixed z-[70] pointer-events-none"
                     style={{ left: tooltipData.x, top: tooltipData.y }}
                 >
-                    {tooltipData.content}
+                    {renderTooltipContent(tooltipData.item, tooltipData.type)}
                 </div>
             )}
         </div>
