@@ -11,7 +11,7 @@ export enum RevenueType {
 export enum ConsultationType {
   NEW = 'Tư vấn mới',
   OLD = 'Tư vấn cũ',
-  DESIGN_REVIEW = 'Duyệt Design',
+  DESIGN_REVIEW = 'Duyệt Design', 
   HANDOVER = 'Bàn giao',
   UPGRADE = 'Nâng cấp',
   RESTORE = 'Khôi phục Web',
@@ -136,6 +136,8 @@ export interface Revenue {
   relatedContractId?: string;
   customerName?: string;
   phone?: string;
+  supportId?: string; // ID of support person
+  supportName?: string; // Name of support person
 }
 
 export interface ProjectProfile {
