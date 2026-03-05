@@ -89,16 +89,29 @@ interface ComboboxProps {
   label?: string;
   value: string;
   onChange: (value: string) => void;
-  options: string[];
+  options: (string | { value: string; label: string })[];
   placeholder?: string;
 }
 
 export const Combobox: React.FC<ComboboxProps> = ({ label, value, onChange, options, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState(value);
+  
+  // Helper to handle both string and object options
+  const getOptionLabel = (opt: string | { value: string; label: string }) => typeof opt === 'string' ? opt : opt.label;
+  const getOptionValue = (opt: string | { value: string; label: string }) => typeof opt === 'string' ? opt : opt.value;
+
+  // Initialize query based on value
+  const getInitialQuery = () => {
+      const selectedOpt = options.find(o => getOptionValue(o) === value);
+      return selectedOpt ? getOptionLabel(selectedOpt) : value;
+  };
+
+  const [query, setQuery] = useState(getInitialQuery());
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setQuery(value); }, [value]);
+  useEffect(() => { 
+      setQuery(getInitialQuery()); 
+  }, [value, options]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -112,7 +125,7 @@ export const Combobox: React.FC<ComboboxProps> = ({ label, value, onChange, opti
 
   const filtered = query === '' 
     ? options 
-    : options.filter(opt => opt.toLowerCase().includes(query.toLowerCase()));
+    : options.filter(opt => getOptionLabel(opt).toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="w-full relative" ref={wrapperRef}>
@@ -131,9 +144,15 @@ export const Combobox: React.FC<ComboboxProps> = ({ label, value, onChange, opti
             <li 
               key={idx} 
               className="relative cursor-pointer select-none py-2 px-3 hover:bg-blue-50 text-gray-900 transition-colors"
-              onClick={() => { setQuery(opt); onChange(opt); setIsOpen(false); }}
+              onClick={() => { 
+                  const label = getOptionLabel(opt);
+                  const val = getOptionValue(opt);
+                  setQuery(label); 
+                  onChange(val); 
+                  setIsOpen(false); 
+              }}
             >
-              {opt}
+              {getOptionLabel(opt)}
             </li>
           ))}
         </ul>
