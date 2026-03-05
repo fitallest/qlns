@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { storageService } from '../services/storageService';
-import { User, Department, Appointment, Revenue, Message, UserRole, ROLE_RANK, ROLE_LABELS, DepartmentLevel, ProjectProfile, ActivityLog, Consultation } from '../types';
+import { User, Department, Appointment, Revenue, Message, UserRole, ROLE_RANK, ROLE_LABELS, DepartmentLevel, ProjectProfile, ActivityLog, Consultation, MonthlyTarget } from '../types';
 import { Button, Input, Modal, Select, Card, Badge, Combobox } from '../components/ui';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Users, TrendingUp, Calendar, Edit, Trash2, Eye, ArrowLeft, Send, MessageSquare, Search, LayoutGrid, Loader2, GitMerge, CornerDownRight, CheckCircle, Filter, Briefcase, Building2, Crown, UserCircle, Users as UsersIcon, X, ChevronRight, Trophy, AlertTriangle, RotateCcw, ShieldAlert, Activity, AlertOctagon } from 'lucide-react';
@@ -32,6 +32,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
   const [allConsultations, setAllConsultations] = useState<Consultation[]>([]); // Added Consultation State
   const [allProjects, setAllProjects] = useState<ProjectProfile[]>([]);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [currentMonthTarget, setCurrentMonthTarget] = useState<MonthlyTarget | null>(null);
+  const [isTargetModalOpen, setTargetModalOpen] = useState(false);
+  const [editingTarget, setEditingTarget] = useState<Partial<MonthlyTarget>>({});
 
   // --- TOP 10 TAB STATE ---
   const [top10Tab, setTop10Tab] = useState<'COMPANY' | 'REGION'>('REGION');
@@ -94,8 +97,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
 
   const refreshData = async () => {
       setLoading(true);
+      const currentMonthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
       try {
-          const [u, d, r, a, cons, m, p, act] = await Promise.all([
+          const [u, d, r, a, cons, m, p, act, target] = await Promise.all([
               storageService.getUsers(),
               storageService.getDepartments(),
               storageService.getRevenues(),
@@ -104,7 +108,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
               storageService.getMessages(),
               storageService.getProjects(),
               // Fetch only current user's activities
-              storageService.getActivities(currentUser.id)
+              storageService.getActivities(currentUser.id),
+              storageService.getMonthlyTarget(currentUser.id, currentMonthStart)
           ]);
           setAllUsers(u);
           setDepartments(d);
@@ -114,11 +119,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
           setAllMessages(m);
           setAllProjects(p);
           setActivities(act);
+          setCurrentMonthTarget(target);
       } catch (error) {
           console.error("Failed to load data", error);
       } finally {
           setLoading(false);
       }
+  };
+
+  const handleSaveTarget = async () => {
+      try {
+          const currentMonthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+          const targetId = `${currentUser.id}_${currentMonthStart.replace(/-/g, '_')}`;
+          const targetData: MonthlyTarget = {
+              id: targetId,
+              userId: currentUser.id,
+              monthStr: currentMonthStart,
+              targetRevenue: Number(editingTarget.targetRevenue) || 0,
+              targetAppointment: Number(editingTarget.targetAppointment) || 0,
+              targetConsultation: Number(editingTarget.targetConsultation) || 0
+          };
+          await storageService.saveMonthlyTarget(targetData);
+          setCurrentMonthTarget(targetData);
+          setTargetModalOpen(false);
+      } catch (e: any) { alert(e.message); }
   };
 
   const silentRefreshMsg = async () => {
@@ -821,13 +845,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
       {activeTab === 'dashboard' && (
           <div className="space-y-6">
              <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                <div className="flex items-center gap-2 mb-4"><UserCircle size={20} className="text-blue-600"/><h3 className="text-sm font-black text-gray-800 uppercase tracking-widest">Chỉ số cá nhân (Self-Sales) - Trong khoảng thời gian chọn</h3></div>
+                <div className="flex items-center gap-2 mb-4">
+                    <UserCircle size={20} className="text-blue-600"/>
+                    <h3 className="text-sm font-black text-gray-800 uppercase tracking-widest">Chỉ số cá nhân (Self-Sales) - Tháng {new Date().getMonth() + 1}</h3>
+                    <div className="ml-auto">
+                        <Button 
+                            size="sm" 
+                            variant="outline" 
+                            onClick={() => {
+                                setEditingTarget(currentMonthTarget || { targetRevenue: 0, targetAppointment: 0, targetConsultation: 0 });
+                                setTargetModalOpen(true);
+                            }}
+                            className="h-7 text-[10px] px-2"
+                        >
+                            <Edit size={12} className="mr-1"/> Đặt mục tiêu
+                        </Button>
+                    </div>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
                          <div>
                              <div className="text-xs font-bold text-gray-500 uppercase">Doanh thu tự bán</div>
                              <div className="text-2xl font-black text-blue-600 mt-1">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(dashboardStats.personal.revenue)}</div>
-                             <div className="text-[10px] text-gray-400 mt-1">Trong khoảng thời gian đã chọn</div>
+                             <div className="text-[10px] text-gray-400 mt-1">Mục tiêu: {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(currentMonthTarget?.targetRevenue || 0)}</div>
+                             <div className="w-full bg-blue-100 h-1 mt-2 rounded-full overflow-hidden">
+                                <div className="bg-blue-500 h-full" style={{width: `${currentMonthTarget?.targetRevenue ? Math.min((dashboardStats.personal.revenue / currentMonthTarget.targetRevenue) * 100, 100) : 0}%`}}></div>
+                             </div>
                          </div>
                          <div className="bg-white p-2 rounded-lg text-blue-500"><TrendingUp size={24}/></div>
                     </div>
@@ -835,7 +878,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
                          <div>
                              <div className="text-xs font-bold text-gray-500 uppercase">Cuộc hẹn cá nhân</div>
                              <div className="text-2xl font-black text-purple-600 mt-1">{dashboardStats.personal.apps}</div>
-                             <div className="text-[10px] text-gray-400 mt-1">Trong khoảng thời gian đã chọn</div>
+                             <div className="text-[10px] text-gray-400 mt-1">Mục tiêu: {currentMonthTarget?.targetAppointment || 0}</div>
+                             <div className="w-full bg-purple-100 h-1 mt-2 rounded-full overflow-hidden">
+                                <div className="bg-purple-500 h-full" style={{width: `${currentMonthTarget?.targetAppointment ? Math.min((dashboardStats.personal.apps / currentMonthTarget.targetAppointment) * 100, 100) : 0}%`}}></div>
+                             </div>
                          </div>
                          <div className="bg-white p-2 rounded-lg text-purple-500"><Calendar size={24}/></div>
                     </div>
@@ -843,12 +889,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
                          <div>
                              <div className="text-xs font-bold text-gray-500 uppercase">Cuộc tư vấn</div>
                              <div className="text-2xl font-black text-teal-600 mt-1">{dashboardStats.personal.cons}</div>
-                             <div className="text-[10px] text-gray-400 mt-1">Trong khoảng thời gian đã chọn</div>
+                             <div className="text-[10px] text-gray-400 mt-1">Mục tiêu: {currentMonthTarget?.targetConsultation || 0}</div>
+                             <div className="w-full bg-teal-100 h-1 mt-2 rounded-full overflow-hidden">
+                                <div className="bg-teal-500 h-full" style={{width: `${currentMonthTarget?.targetConsultation ? Math.min((dashboardStats.personal.cons / currentMonthTarget.targetConsultation) * 100, 100) : 0}%`}}></div>
+                             </div>
                          </div>
                          <div className="bg-white p-2 rounded-lg text-teal-500"><MessageSquare size={24}/></div>
                     </div>
                 </div>
              </div>
+
+             {/* Target Modal */}
+            <Modal isOpen={isTargetModalOpen} onClose={() => setTargetModalOpen(false)} title={`MỤC TIÊU CÁ NHÂN THÁNG ${new Date().getMonth() + 1}/${new Date().getFullYear()}`}>
+                <div className="space-y-4">
+                    <Input 
+                        label="Mục tiêu Doanh thu (VNĐ)" 
+                        type="number" 
+                        value={editingTarget.targetRevenue} 
+                        onChange={e => setEditingTarget({...editingTarget, targetRevenue: Number(e.target.value)})} 
+                    />
+                    <Input 
+                        label="Mục tiêu Cuộc hẹn" 
+                        type="number" 
+                        value={editingTarget.targetAppointment} 
+                        onChange={e => setEditingTarget({...editingTarget, targetAppointment: Number(e.target.value)})} 
+                    />
+                    <Input 
+                        label="Mục tiêu Tư vấn" 
+                        type="number" 
+                        value={editingTarget.targetConsultation} 
+                        onChange={e => setEditingTarget({...editingTarget, targetConsultation: Number(e.target.value)})} 
+                    />
+                    <div className="flex justify-end gap-3 pt-4">
+                        <Button variant="ghost" onClick={() => setTargetModalOpen(false)}>Hủy</Button>
+                        <Button onClick={handleSaveTarget}>Lưu mục tiêu</Button>
+                    </div>
+                </div>
+            </Modal>
              
              <div className="space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-2">
