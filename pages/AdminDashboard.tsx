@@ -366,12 +366,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
       // Helper to calculate revenue share
       const getRevenueShare = (r: Revenue, uid: string) => {
           const amount = Number(r.amountCollected) || 0;
-          const hasSupport = Boolean(r.supportId && String(r.supportId).trim() !== '');
+          
+          let effectiveSupportId = r.supportId;
+          if (!effectiveSupportId && r.contractCode) {
+              const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+              const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+              if (revWithSupport) {
+                  effectiveSupportId = revWithSupport.supportId;
+              }
+          }
+
+          const hasSupport = Boolean(effectiveSupportId && String(effectiveSupportId).trim() !== '');
 
           if (r.userId === uid) {
               return hasSupport ? amount / 2 : amount;
           }
-          if (r.supportId === uid) {
+          if (effectiveSupportId === uid) {
               return amount / 2;
           }
           return 0;
@@ -422,14 +432,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
           .filter(r => isInRange(r.date))
           .reduce((sum, r) => {
               let rSum = 0;
-              const amount = Number(r.amountCollected) || 0;
-              const hasSupport = Boolean(r.supportId && String(r.supportId).trim() !== '');
+              
+              let effectiveSupportId = r.supportId;
+              if (!effectiveSupportId && r.contractCode) {
+                  const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+                  const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+                  if (revWithSupport) {
+                      effectiveSupportId = revWithSupport.supportId;
+                  }
+              }
 
               if (validTargetIds.has(r.userId)) {
-                  rSum += hasSupport ? amount / 2 : amount;
+                  rSum += getRevenueShare(r, r.userId);
               }
-              if (r.supportId && validTargetIds.has(r.supportId)) {
-                  rSum += amount / 2;
+              if (effectiveSupportId && validTargetIds.has(effectiveSupportId)) {
+                  rSum += getRevenueShare(r, effectiveSupportId);
               }
               return sum + rSum;
           }, 0);
@@ -442,14 +459,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
       // A. Global (Whole Company)
       const empRevMapGlobal: Record<string, number> = {};
       allRevenues.filter(r => isInRange(r.date)).forEach(r => {
+          let effectiveSupportId = r.supportId;
+          if (!effectiveSupportId && r.contractCode) {
+              const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+              const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+              if (revWithSupport) {
+                  effectiveSupportId = revWithSupport.supportId;
+              }
+          }
+
           // Owner share
-          const ownerShare = r.supportId ? r.amountCollected / 2 : r.amountCollected;
+          const ownerShare = effectiveSupportId ? r.amountCollected / 2 : r.amountCollected;
           empRevMapGlobal[r.userId] = (empRevMapGlobal[r.userId] || 0) + ownerShare;
           
           // Support share
-          if (r.supportId) {
+          if (effectiveSupportId) {
               const supportShare = r.amountCollected / 2;
-              empRevMapGlobal[r.supportId] = (empRevMapGlobal[r.supportId] || 0) + supportShare;
+              empRevMapGlobal[effectiveSupportId] = (empRevMapGlobal[effectiveSupportId] || 0) + supportShare;
           }
       });
       const topEmployeesGlobal = Object.entries(empRevMapGlobal)
@@ -530,10 +556,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
           if (!isInRange(r.date)) return;
           const month = r.date.substring(0, 7);
           let amount = 0;
-          if (chartTargetIds.has(r.userId)) {
-              amount += r.supportId ? r.amountCollected / 2 : r.amountCollected;
+          
+          let effectiveSupportId = r.supportId;
+          if (!effectiveSupportId && r.contractCode) {
+              const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+              const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+              if (revWithSupport) {
+                  effectiveSupportId = revWithSupport.supportId;
+              }
           }
-          if (r.supportId && chartTargetIds.has(r.supportId)) {
+
+          if (chartTargetIds.has(r.userId)) {
+              amount += effectiveSupportId ? r.amountCollected / 2 : r.amountCollected;
+          }
+          if (effectiveSupportId && chartTargetIds.has(effectiveSupportId)) {
               amount += r.amountCollected / 2;
           }
           if (amount > 0) {
@@ -692,16 +728,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) =
 
   const calculateTotalRevenue = (user: User) => {
       const earned = allRevenues.reduce((sum, r) => {
+          let effectiveSupportId = r.supportId;
+          if (!effectiveSupportId && r.contractCode) {
+              const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+              const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+              if (revWithSupport) {
+                  effectiveSupportId = revWithSupport.supportId;
+              }
+          }
+
           // If user is owner and there is support -> 50%
-          if (r.userId === user.id && r.supportId) {
+          if (r.userId === user.id && effectiveSupportId) {
               return sum + (r.amountCollected / 2);
           }
           // If user is support -> 50%
-          if (r.supportId === user.id) {
+          if (effectiveSupportId === user.id) {
               return sum + (r.amountCollected / 2);
           }
           // If user is owner and no support -> 100%
-          if (r.userId === user.id && !r.supportId) {
+          if (r.userId === user.id && !effectiveSupportId) {
               return sum + r.amountCollected;
           }
           return sum;
