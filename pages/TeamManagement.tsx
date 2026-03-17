@@ -226,12 +226,22 @@
             // Helper to calculate revenue share
             const getRevenueShare = (r: Revenue, uid: string) => {
                 const amount = Number(r.amountCollected) || 0;
-                const hasSupport = Boolean(r.supportId && String(r.supportId).trim() !== '');
+                
+                let effectiveSupportId = r.supportId;
+                if (!effectiveSupportId && r.contractCode) {
+                    const projectRevs = revenues.filter(rev => rev.contractCode === r.contractCode);
+                    const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+                    if (revWithSupport) {
+                        effectiveSupportId = revWithSupport.supportId;
+                    }
+                }
+
+                const hasSupport = Boolean(effectiveSupportId && String(effectiveSupportId).trim() !== '');
 
                 if (r.userId === uid) {
                     return hasSupport ? amount / 2 : amount;
                 }
-                if (r.supportId === uid) {
+                if (effectiveSupportId === uid) {
                     return amount / 2;
                 }
                 return 0;
@@ -249,8 +259,7 @@
                 });
                 const userRevs = revenues.filter(r => {
                     const d = getVNDate(r.date);
-                    const isRelevant = (r.userId === user.id || r.supportId === user.id);
-                    return isRelevant && d && d.getMonth() + 1 === month && d.getFullYear() === year;
+                    return d && d.getMonth() + 1 === month && d.getFullYear() === year;
                 });
 
                 const todayApps = userApps.filter(a => {
