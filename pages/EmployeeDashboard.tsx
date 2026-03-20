@@ -372,7 +372,7 @@
     // --- Copy Report Function ---
     const handleCopyReport = (item: DashboardItem) => {
         const date = new Date(item.date);
-        const timeStr = `${date.getHours()}h${date.getMinutes().toString().padStart(2, '0')} ${date.getDate()}/${date.getMonth() + 1}`;
+        const timeStr = item.date.length > 10 ? `${date.getHours()}h${date.getMinutes().toString().padStart(2, '0')} ${date.getDate()}/${date.getMonth() + 1}` : `${date.getDate()}/${date.getMonth() + 1}`;
         
         let text = '';
         if (item.dataType === 'APP') {
@@ -573,7 +573,8 @@
             }
             return item.date;
         };
-        const timeStr = new Date(getItemDate(item)).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'});
+        const itemDateStr = getItemDate(item);
+        const timeStr = itemDateStr.length > 10 ? new Date(itemDateStr).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : '--:--';
         
         if (item.dataType === 'REV') {
             let effectiveSupportId = item.supportId;
@@ -618,6 +619,27 @@
         }
 
         if (item.dataType === 'APP') {
+            const hasMet = consultations.some(c => c.phone === item.phone && c.date.substring(0, 10) === item.date.substring(0, 10));
+            let statusText: string = item.status;
+            let badgeVariant: "success" | "warning" | "error" | "info" | "neutral" | "indigo" | "purple" = "info";
+            let showOriginalStatus = false;
+            
+            if (hasMet) {
+                statusText = "Đã gặp";
+                badgeVariant = "success";
+                if (item.status !== AppointmentStatus.NEW) showOriginalStatus = true;
+            } else if (item.status === AppointmentStatus.CANCELLED) {
+                statusText = "Đã hủy";
+                badgeVariant = "error";
+            } else if (item.status === AppointmentStatus.POSTPONED) {
+                statusText = "Dời hẹn";
+                badgeVariant = "warning";
+            } else {
+                statusText = "Chưa gặp";
+                badgeVariant = "neutral";
+                if (item.status !== AppointmentStatus.NEW) showOriginalStatus = true;
+            }
+
             return (
                 <div key={item.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-md transition-all">
                     <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-purple-500 rounded-l-xl"></div>
@@ -625,7 +647,8 @@
                         <div className="space-y-1">
                             <div className="flex items-center gap-2">
                                 <span className="text-purple-600 font-bold text-xs bg-purple-50 px-2 py-0.5 rounded border border-purple-100">{timeStr}</span>
-                                <Badge variant="info">{item.status}</Badge>
+                                <Badge variant={badgeVariant}>{statusText}</Badge>
+                                {showOriginalStatus && <span className="text-xs text-gray-500 italic">({item.status})</span>}
                             </div>
                             <div className="font-bold text-gray-800 text-lg">{item.customerName}</div>
                             <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
@@ -836,7 +859,11 @@
                                 }
                                 return s + amount;
                             }, 0);
-                            const appCount = items.filter(i => i.dataType === 'APP').length;
+                            const appItems = items.filter(i => i.dataType === 'APP') as Appointment[];
+                            const appCount = appItems.length;
+                            const metAppCount = appItems.filter(app => 
+                                consultations.some(c => c.phone === app.phone && c.date.substring(0, 10) === app.date.substring(0, 10))
+                            ).length;
                             const consCount = items.filter(i => i.dataType === 'CONS').length;
 
                             return (
@@ -850,7 +877,7 @@
                                                 <div className="text-[10px] font-bold text-gray-400 uppercase">THÁNG {dateObj.getMonth() + 1}</div>
                                             </div>
                                             <div className="flex gap-2">
-                                                {appCount > 0 && <span className="bg-purple-50 text-purple-600 border border-purple-100 px-2 py-1 rounded text-xs font-bold flex items-center gap-1"><Calendar size={12}/> {appCount} Hẹn</span>}
+                                                {appCount > 0 && <span className="bg-purple-50 text-purple-600 border border-purple-100 px-2 py-1 rounded text-xs font-bold flex items-center gap-1"><Calendar size={12}/> {appCount} Hẹn {metAppCount > 0 ? `(Đã gặp ${metAppCount})` : ''}</span>}
                                                 {consCount > 0 && <span className="bg-green-50 text-green-600 border border-green-100 px-2 py-1 rounded text-xs font-bold flex items-center gap-1"><MessageSquare size={12}/> {consCount} Tư vấn</span>}
                                             </div>
                                         </div>
@@ -1178,7 +1205,7 @@
         <Modal isOpen={isConsModalOpen} onClose={() => setConsModalOpen(false)} title="PHIẾU TƯ VẤN KHÁCH HÀNG">
             <div className="space-y-4 p-1">
                 <div className="grid grid-cols-2 gap-4">
-                    <Input label="Ngày tư vấn" type="date" value={editingCons.date ? editingCons.date.substring(0, 10) : ''} onChange={e => setEditingCons({...editingCons, date: e.target.value})} />
+                    <Input label="Ngày giờ tư vấn" type="datetime-local" value={editingCons.date ? editingCons.date.substring(0, 16) : ''} onChange={e => setEditingCons({...editingCons, date: e.target.value})} />
                     <Input label="Số điện thoại" value={editingCons.phone || ''} onChange={e => setEditingCons({...editingCons, phone: e.target.value})} onBlur={(e) => autofillCustomerInfo(e.target.value, 'CONS')} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
