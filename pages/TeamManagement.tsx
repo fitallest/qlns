@@ -1,5 +1,5 @@
     import React, { useState, useEffect, useMemo, useCallback } from 'react';
-    import { User, Appointment, Consultation, Revenue, MonthlyTarget, ROLE_RANK, Department, ROLE_LABELS } from '../types';
+    import { User, Appointment, Consultation, Revenue, MonthlyTarget, ROLE_RANK, Department, ROLE_LABELS, AppointmentStatus } from '../types';
     import { storageService } from '../services/storageService';
     import { Loader2, Calendar as CalendarIcon, Users, DollarSign, Target, ChevronLeft, ChevronRight, Settings, Filter, Eye, X, Bell, Clock, User as UserIcon, FileText, Phone, MapPin, FileType } from 'lucide-react';
     import { Card, Button, Select, Modal, Badge } from '../components/ui';
@@ -371,17 +371,22 @@
 
                 // Only filter Appointments based on 'date' (Appointment Time)
                 const dayApps = appointments.filter(a => checkDate(a.date) && subordinates.some(u => u.id === a.userId));
+                const dayCons = consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId));
 
                 days.push({
                     date: dateStr,
                     day: i,
                     events: [
-                        ...dayApps.map(a => ({ eventType: 'APP', ...a, user: subordinates.find(u => u.id === a.userId)?.name }))
+                        ...dayApps.map(a => {
+                            const hasMet = consultations.some(c => c.phone === a.phone && c.date.substring(0, 10) === a.date.substring(0, 10));
+                            return { eventType: 'APP', ...a, user: subordinates.find(u => u.id === a.userId)?.name, isMet: hasMet };
+                        }),
+                        ...dayCons.map(c => ({ eventType: 'CONS', ...c, user: subordinates.find(u => u.id === c.userId)?.name }))
                     ]
                 });
             }
             return days;
-        }, [selectedMonth, appointments, subordinates, getVNDate]);
+        }, [selectedMonth, appointments, consultations, subordinates, getVNDate]);
 
         // --- Helper: Render Tooltip Content ---
         const renderTooltipContent = useCallback((item: any, type: 'APP' | 'CONS' | 'REV') => {
@@ -532,7 +537,7 @@
             // If in MEETINGS calendar and it's an appointment, strictly use 'date'
             const timeSource = (selectedCalendarType === 'MEETINGS' && type === 'APP') ? item.date : (item.reportedTime || item.date);
             const dateObj = getVNDate(timeSource);
-            const timeStr = dateObj ? dateObj.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '--:--';
+            const timeStr = (dateObj && timeSource.length > 10) ? dateObj.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '--:--';
             const dateStr = dateObj ? dateObj.toLocaleDateString('vi-VN') : '--/--/----';
 
             return (
@@ -550,7 +555,41 @@
                             </p>
                         </div>
                         <div className="flex flex-col items-end gap-1 shrink-0">
-                            {type === 'APP' && <Badge variant="info">{item.status}</Badge>}
+                            {type === 'APP' && (() => {
+                                const hasMet = consultations.some(c => c.phone === item.phone && c.date.substring(0, 10) === item.date.substring(0, 10));
+                                let statusText: string = item.status;
+                                let badgeVariant: "success" | "warning" | "error" | "info" | "neutral" | "indigo" | "purple" = "info";
+                                let showOriginalStatus = false;
+                                
+                                if (hasMet) {
+                                    statusText = "Đã gặp";
+                                    badgeVariant = "success";
+                                    if (item.status !== AppointmentStatus.NEW) {
+                                        showOriginalStatus = true;
+                                    }
+                                } else if (item.status === AppointmentStatus.CANCELLED) {
+                                    statusText = "Đã hủy";
+                                    badgeVariant = "error";
+                                } else if (item.status === AppointmentStatus.POSTPONED) {
+                                    statusText = "Dời hẹn";
+                                    badgeVariant = "warning";
+                                } else {
+                                    statusText = "Chưa gặp";
+                                    badgeVariant = "neutral";
+                                    if (item.status !== AppointmentStatus.NEW) {
+                                        showOriginalStatus = true;
+                                    }
+                                }
+
+                                return (
+                                    <div className="flex flex-col items-end gap-1">
+                                        <Badge variant={badgeVariant}>{statusText}</Badge>
+                                        {showOriginalStatus && (
+                                            <span className="text-[10px] text-gray-500 italic">({item.status})</span>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                             {type === 'REV' && (
                                 <span className="text-xs font-black text-green-600">
                                     {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.amountCollected)}
@@ -581,7 +620,7 @@
                     </div>
                 </div>
             );
-        }, [subordinates, getVNDate, selectedCalendarType]);
+        }, [subordinates, getVNDate, selectedCalendarType, consultations]);
 
         if (loading) return <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
 
@@ -962,9 +1001,18 @@
                                                 </span>
                                             </div>
                                             <div className="flex flex-col gap-1 mt-1 px-0.5">
-                                                {displayEvents.filter((e: any) => e.eventType === 'APP').length > 0 && (
-                                                    <div className="bg-blue-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.eventType === 'APP').length} Cuộc hẹn`}>
-                                                        {displayEvents.filter((e: any) => e.eventType === 'APP').length} Hẹn
+                                                {displayEvents.filter((e: any) => e.eventType === 'APP').length > 0 && (() => {
+                                                    const apps = displayEvents.filter((e: any) => e.eventType === 'APP');
+                                                    const metApps = apps.filter((a: any) => a.isMet);
+                                                    return (
+                                                        <div className="bg-blue-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${apps.length} Cuộc hẹn`}>
+                                                            {apps.length} Hẹn {metApps.length > 0 ? `(Đã gặp ${metApps.length})` : ''}
+                                                        </div>
+                                                    );
+                                                })()}
+                                                {displayEvents.filter((e: any) => e.eventType === 'CONS').length > 0 && (
+                                                    <div className="bg-purple-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.eventType === 'CONS').length} Tư vấn`}>
+                                                        {displayEvents.filter((e: any) => e.eventType === 'CONS').length} Tư vấn
                                                     </div>
                                                 )}
                                             </div>
@@ -1053,9 +1101,10 @@
                                                 return (da?.getTime() || 0) - (db?.getTime() || 0);
                                             })
                                             .map(app => {
-                                                const d = getVNDate(app.reportedTime || app.date);
+                                                const timeSource = app.reportedTime || app.date;
+                                                const d = getVNDate(timeSource);
                                                 const dateStr = d ? d.toLocaleDateString('vi-VN') : '';
-                                                const timeStr = d ? d.toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : '';
+                                                const timeStr = (d && timeSource.length > 10) ? d.toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : '';
                                                 return (
                                                     <div key={app.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-xs">
                                                         <div className="font-bold text-gray-800">{dateStr} {timeStr}</div>
@@ -1137,7 +1186,7 @@
                                 
                                 // Only show Consultations and Revenue for RESULTS calendar
                                 // For MEETINGS, also show Consultations now
-                                const dayCons = (selectedCalendarType === 'RESULTS')
+                                const dayCons = (selectedCalendarType === 'RESULTS' || selectedCalendarType === 'MEETINGS')
                                     ? consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId))
                                     : [];
                                     
