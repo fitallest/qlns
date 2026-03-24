@@ -21,6 +21,15 @@ export default defineConfig(({ mode }) => {
       },
       build: {
         outDir: 'dist',
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              vendor: ['react', 'react-dom', 'lucide-react', 'recharts'],
+              firebase: ['firebase/app', 'firebase/firestore', 'firebase/auth']
+            }
+          }
+        },
+        chunkSizeWarningLimit: 1000
       }
     };
 });
