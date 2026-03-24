@@ -100,6 +100,35 @@
             }
         };
 
+        // --- Helper: Mask Item ---
+        const maskItem = useCallback((rawItem: any) => {
+            if (!rawItem) return rawItem;
+            if (ROLE_RANK[currentUser.role] <= 1 && rawItem.userId !== currentUser.id) {
+                let isSupport = rawItem.supportId === currentUser.id;
+                
+                // If it's a revenue item and they are not directly the supportId, check if they are support for the same contract
+                if (!isSupport && rawItem.contractCode && rawItem.amountCollected !== undefined) {
+                    const projectRevs = revenues.filter(r => r.contractCode === rawItem.contractCode);
+                    isSupport = projectRevs.some(r => r.supportId === currentUser.id);
+                }
+
+                if (!isSupport) {
+                    return {
+                        ...rawItem,
+                        customerName: '***',
+                        phone: '***',
+                        companyName: '***',
+                        addressDetail: '***',
+                        notes: '***',
+                        contractCode: '***',
+                        email: '***',
+                        source: '***'
+                    };
+                }
+            }
+            return rawItem;
+        }, [currentUser, revenues]);
+
         // Check Reminders
         useEffect(() => {
             if (loading || appointments.length === 0) return;
@@ -112,7 +141,8 @@
                 let newReminders: any[] = [];
 
                 // 1. 1 Hour Before Reminder
-                appointments.forEach(app => {
+                appointments.forEach(rawApp => {
+                    const app = maskItem(rawApp);
                     if (!subordinates.some(u => u.id === app.userId)) return;
                     
                     const appDate = new Date(app.date);
@@ -141,7 +171,7 @@
             check();
             const interval = setInterval(check, 60000); // Check every minute
             return () => clearInterval(interval);
-        }, [appointments, subordinates, loading]);
+        }, [appointments, subordinates, loading, maskItem]);
 
         useEffect(() => {
             const fetchData = async () => {
@@ -164,6 +194,9 @@
                     let teamUsers: User[] = [];
                     if (ROLE_RANK[currentUser.role] >= 5) { // Director/Regional
                         teamUsers = users; // Simplified for high level
+                    } else if (ROLE_RANK[currentUser.role] <= 1) { // Employee
+                        // Employees only see themselves
+                        teamUsers = [currentUser];
                     } else {
                         // Find direct and indirect subordinates
                         const managedDeptIds = new Set<string>();
@@ -339,7 +372,7 @@
 
                 const dayApps = appointments.filter(a => checkDate(a.reportedTime || a.date) && subordinates.some(u => u.id === a.userId));
                 const dayCons = consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId));
-                const dayRevs = revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId));
+                const dayRevs = revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId || u.id === r.supportId));
 
                 days.push({
                     date: dateStr,
@@ -389,7 +422,9 @@
         }, [selectedMonth, appointments, consultations, subordinates, getVNDate]);
 
         // --- Helper: Render Tooltip Content ---
-        const renderTooltipContent = useCallback((item: any, type: 'APP' | 'CONS' | 'REV') => {
+        const renderTooltipContent = useCallback((rawItem: any, type: 'APP' | 'CONS' | 'REV') => {
+            const item = maskItem(rawItem);
+
             let colorClass = '';
             let icon = null;
             let title = '';
@@ -480,10 +515,12 @@
                     {content}
                 </div>
             );
-        }, []);
+        }, [maskItem]);
 
         // --- Helper: Render Event Item for Day Detail ---
-        const renderEventItem = useCallback((item: any, type: 'APP' | 'CONS' | 'REV') => {
+        const renderEventItem = useCallback((rawItem: any, type: 'APP' | 'CONS' | 'REV') => {
+            const item = maskItem(rawItem);
+
             const user = subordinates.find(u => u.id === item.userId);
             
             let colorClass = '';
@@ -556,7 +593,7 @@
                         </div>
                         <div className="flex flex-col items-end gap-1 shrink-0">
                             {type === 'APP' && (() => {
-                                const hasMet = consultations.some(c => c.phone === item.phone && c.date.substring(0, 10) === item.date.substring(0, 10));
+                                const hasMet = consultations.some(c => c.phone === rawItem.phone && c.date.substring(0, 10) === rawItem.date.substring(0, 10));
                                 let statusText: string = item.status;
                                 let badgeVariant: "success" | "warning" | "error" | "info" | "neutral" | "indigo" | "purple" = "info";
                                 let showOriginalStatus = false;
@@ -595,23 +632,25 @@
                                     {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.amountCollected)}
                                 </span>
                             )}
-                            <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedDateForDayDetail(null);
-                                    setSelectedUserForDetail(item.userId);
-                                }}
-                                className={`opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-bold text-${colorClass}-600 bg-white border border-${colorClass}-200 px-2 py-1 rounded-full hover:bg-${colorClass}-50 transition-all duration-200 shadow-sm transform translate-x-2 group-hover:translate-x-0`}
-                                title="Xem hồ sơ nhân viên"
-                            >
-                                <UserIcon size={12} />
-                                Hồ sơ
-                            </button>
+                            {user && (
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedDateForDayDetail(null);
+                                        setSelectedUserForDetail(item.userId);
+                                    }}
+                                    className={`opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-bold text-${colorClass}-600 bg-white border border-${colorClass}-200 px-2 py-1 rounded-full hover:bg-${colorClass}-50 transition-all duration-200 shadow-sm transform translate-x-2 group-hover:translate-x-0`}
+                                    title="Xem hồ sơ nhân viên"
+                                >
+                                    <UserIcon size={12} />
+                                    Hồ sơ
+                                </button>
+                            )}
                         </div>
                     </div>
                     <div className={`mt-2 pt-2 border-t border-${colorClass}-100 flex justify-between items-center text-xs`}>
                         <span className={`text-${colorClass}-700 font-medium flex items-center gap-1`}>
-                            <Users size={12}/> {user?.name}
+                            <Users size={12}/> {user?.name || 'Hỗ trợ'}
                         </span>
                         <span className="text-gray-500 flex items-center gap-1">
                             <Clock size={12}/>
@@ -620,7 +659,7 @@
                     </div>
                 </div>
             );
-        }, [subordinates, getVNDate, selectedCalendarType, consultations]);
+        }, [subordinates, getVNDate, selectedCalendarType, consultations, maskItem, renderTooltipContent]);
 
         if (loading) return <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
 
@@ -634,7 +673,7 @@
                         </Button>
                         <div>
                             <h1 className="text-lg font-bold text-gray-900 uppercase tracking-tight flex items-center gap-2">
-                                QUẢN TRỊ TEAM
+                                {ROLE_RANK[currentUser.role] <= 1 ? 'LỊCH LÀM VIỆC' : 'QUẢN TRỊ TEAM'}
                                 <span className="text-gray-300 font-light">|</span>
                                 <span className="text-blue-600">{currentTeamName}</span>
                             </h1>
@@ -905,7 +944,7 @@
                                 {calendarDays.map((day) => {
                                     // Filter events if a user is selected
                                     const displayEvents = selectedUserForDetail 
-                                        ? day.events.filter((e: any) => e.userId === selectedUserForDetail)
+                                        ? day.events.filter((e: any) => e.userId === selectedUserForDetail || e.supportId === selectedUserForDetail)
                                         : day.events;
                                     
                                     const today = new Date();
@@ -979,7 +1018,7 @@
                                 {meetingCalendarDays.map((day) => {
                                     // Filter events if a user is selected
                                     const displayEvents = selectedUserForDetail 
-                                        ? day.events.filter((e: any) => e.userId === selectedUserForDetail)
+                                        ? day.events.filter((e: any) => e.userId === selectedUserForDetail || e.supportId === selectedUserForDetail)
                                         : day.events;
                                     
                                     const today = new Date();
@@ -1100,7 +1139,8 @@
                                                 const db = getVNDate(b.reportedTime || b.date);
                                                 return (da?.getTime() || 0) - (db?.getTime() || 0);
                                             })
-                                            .map(app => {
+                                            .map(rawApp => {
+                                                const app = maskItem(rawApp);
                                                 const timeSource = app.reportedTime || app.date;
                                                 const d = getVNDate(timeSource);
                                                 const dateStr = d ? d.toLocaleDateString('vi-VN') : '';
@@ -1145,7 +1185,8 @@
                                                 const db = getVNDate(b.date);
                                                 return (da?.getTime() || 0) - (db?.getTime() || 0);
                                             })
-                                            .map(cons => {
+                                            .map(rawCons => {
+                                                const cons = maskItem(rawCons);
                                                 const d = getVNDate(cons.date);
                                                 const dateStr = d ? d.toLocaleDateString('vi-VN') : '';
                                                 return (
@@ -1191,7 +1232,7 @@
                                     : [];
                                     
                                 const dayRevs = selectedCalendarType === 'RESULTS'
-                                    ? revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId))
+                                    ? revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId || u.id === r.supportId))
                                     : [];
                                 
                                 if (dayApps.length === 0 && dayCons.length === 0 && dayRevs.length === 0) {
