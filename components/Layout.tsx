@@ -60,7 +60,7 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children, onView
               </span>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4">
-              {isManager && onViewChange && (
+              {onViewChange && (
                   <div className="flex bg-gray-100 rounded-lg p-1 mr-4">
                       <button 
                           onClick={() => onViewChange('dashboard')}
@@ -72,7 +72,7 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children, onView
                           onClick={() => onViewChange('team')}
                           className={`flex items-center px-3 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${currentView === 'team' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                       >
-                          <Users size={14} className="mr-1.5"/> <span className="hidden sm:inline">Quản trị Team</span>
+                          <Users size={14} className="mr-1.5"/> <span className="hidden sm:inline">{ROLE_RANK[user.role] <= 1 ? 'Lịch làm việc' : 'Quản trị Team'}</span>
                       </button>
                   </div>
               )}
