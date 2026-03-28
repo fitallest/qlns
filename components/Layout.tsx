@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User, UserRole, ROLE_RANK } from '../types';
 import { LogOut, User as UserIcon, KeyRound, Users, LayoutDashboard } from 'lucide-react';
@@ -62,12 +63,14 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children, onView
               {onViewChange && (
                   <div className="flex bg-gray-100 rounded-lg p-1 mr-4">
                       <button 
+                          type="button"
                           onClick={() => onViewChange('dashboard')}
                           className={`flex items-center px-3 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${currentView === 'dashboard' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                       >
                           <LayoutDashboard size={14} className="mr-1.5"/> <span className="hidden sm:inline">Dashboard</span>
                       </button>
                       <button 
+                          type="button"
                           onClick={() => onViewChange('team')}
                           className={`flex items-center px-3 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${currentView === 'team' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                       >
