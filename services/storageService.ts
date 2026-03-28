@@ -480,7 +480,9 @@ export const storageService = {
             company: cons.companyName, 
             address: cons.addressDetail, 
             source: cons.source,
-            city: '' 
+            city: '',
+            supportPersonId: cons.supportPersonId,
+            supportPersonName: cons.supportPersonName
           };
       }
       return null;
