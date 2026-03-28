@@ -13,7 +13,13 @@ import { Loader2 } from 'lucide-react';
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'team'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'team'>(() => {
+    return (localStorage.getItem('currentView') as 'dashboard' | 'team') || 'dashboard';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('currentView', currentView);
+  }, [currentView]);
 
   useEffect(() => {
     // Attempt to restore session
@@ -54,14 +60,12 @@ function App() {
   return (
     <Layout user={user} onLogout={handleLogout} onViewChange={setCurrentView} currentView={currentView}>
       <NotificationManager currentUser={user} />
-      {isManager ? (
-        currentView === 'team' ? (
-            <TeamManagement currentUser={user} onBack={() => setCurrentView('dashboard')} />
-        ) : (
-            <AdminDashboard currentUser={user} />
-        )
+      {currentView === 'team' ? (
+          <TeamManagement currentUser={user} onBack={() => setCurrentView('dashboard')} />
+      ) : isManager ? (
+          <AdminDashboard currentUser={user} />
       ) : (
-        <EmployeeDashboard user={user} />
+          <EmployeeDashboard user={user} />
       )}
     </Layout>
   );
