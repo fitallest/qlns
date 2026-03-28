@@ -108,7 +108,9 @@
             ]);
 
             setAppointments(allApps.filter(a => a.userId === user.id));
-            setConsultations(allCons.filter(c => c.userId === user.id));
+            
+            const relevantCons = allCons.filter(c => c.userId === user.id || c.supportPersonId === user.id);
+            setConsultations(relevantCons);
             
             const relevantRevs = allRevs.filter(r => {
                 if (r.userId === user.id || r.supportId === user.id) return true;
@@ -682,7 +684,8 @@
                                 <Badge variant="success">{item.type}</Badge>
                             </div>
                             <div className="font-bold text-gray-800 text-lg">{item.customerName}</div>
-                            <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
+                            <div className="text-xs text-gray-500 flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
+                                <span className="flex items-center gap-1"><Clock size={12}/> Tư vấn lúc: {timeStr}</span>
                                 <span className="flex items-center gap-1"><Phone size={12}/> {item.phone}</span>
                                 {item.supportPersonName && <span className="text-gray-400 pl-2 border-l">Hỗ trợ: {item.supportPersonName}</span>}
                             </div>
@@ -1221,7 +1224,20 @@
                     <Select label="Hình thức hỗ trợ" options={Object.values(SupportType).map(t => ({value: t, label: t}))} value={editingCons.supportType || SupportType.SOLO} onChange={e => setEditingCons({...editingCons, supportType: e.target.value as SupportType})} />
                 </div>
                 {editingCons.supportType !== SupportType.SOLO && (
-                    <Input label="Người hỗ trợ (Tên)" value={editingCons.supportPersonName || ''} onChange={e => setEditingCons({...editingCons, supportPersonName: e.target.value})} placeholder="Nhập tên người hỗ trợ..." />
+                    <Combobox 
+                        label="Người hỗ trợ (Tên)" 
+                        placeholder="Chọn người hỗ trợ..."
+                        value={editingCons.supportPersonId || ''} 
+                        onChange={(val) => {
+                            const supportUser = allUsers.find(u => u.id === val);
+                            setEditingCons({
+                                ...editingCons, 
+                                supportPersonId: val, 
+                                supportPersonName: supportUser ? supportUser.name : ''
+                            });
+                        }}
+                        options={allUsers.filter(u => u.id !== user.id).map(u => ({ value: u.id, label: `${u.name} (${u.id})` }))}
+                    />
                 )}
                 <div className="w-full">
                     <label className="block text-sm font-semibold text-gray-700 mb-1">Nội dung tư vấn</label>
