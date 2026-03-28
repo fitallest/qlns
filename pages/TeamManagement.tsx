@@ -404,7 +404,7 @@
 
                 // Only filter Appointments based on 'date' (Appointment Time)
                 const dayApps = appointments.filter(a => checkDate(a.date) && subordinates.some(u => u.id === a.userId));
-                const dayCons = consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId));
+                const dayCons = consultations.filter(c => checkDate(c.date) && (subordinates.some(u => u.id === c.userId) || (c.supportPersonId && subordinates.some(u => u.id === c.supportPersonId))));
 
                 days.push({
                     date: dateStr,
@@ -487,6 +487,12 @@
                             <span className="text-gray-500 flex items-center gap-1"><FileType size={10}/> Loại:</span>
                             <span className="col-span-2 font-medium text-gray-800">{item.type}</span>
                         </div>
+                        {item.supportPersonName && (
+                            <div className="grid grid-cols-3 gap-2">
+                                <span className="text-gray-500 flex items-center gap-1"><Users size={10}/> Hỗ trợ:</span>
+                                <span className="col-span-2 font-medium text-blue-600">{item.supportPersonName}</span>
+                            </div>
+                        )}
                         <div className="grid grid-cols-3 gap-2">
                             <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
                             <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
