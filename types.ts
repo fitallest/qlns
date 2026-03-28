@@ -125,6 +125,7 @@ export interface Consultation {
   notes?: string;
   date: string;
   time?: string; // Specific time for the consultation
+  duration?: number; // Duration in minutes
 }
 
 export interface Revenue {
