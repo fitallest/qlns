@@ -104,7 +104,7 @@
         const maskItem = useCallback((rawItem: any) => {
             if (!rawItem) return rawItem;
             if (ROLE_RANK[currentUser.role] <= 1 && rawItem.userId !== currentUser.id) {
-                let isSupport = rawItem.supportId === currentUser.id;
+                let isSupport = rawItem.supportId === currentUser.id || rawItem.supportPersonId === currentUser.id;
                 
                 // If it's a revenue item and they are not directly the supportId, check if they are support for the same contract
                 if (!isSupport && rawItem.contractCode && rawItem.amountCollected !== undefined) {
@@ -424,6 +424,9 @@
         // --- Helper: Render Tooltip Content ---
         const renderTooltipContent = useCallback((rawItem: any, type: 'APP' | 'CONS' | 'REV') => {
             const item = maskItem(rawItem);
+            const timeSource = (selectedCalendarType === 'MEETINGS' && type === 'APP') ? item.date : (item.reportedTime || item.date);
+            const dateObj = getVNDate(timeSource);
+            const timeStr = (dateObj && timeSource.length > 10) ? dateObj.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '--:--';
 
             let colorClass = '';
             let icon = null;
@@ -475,6 +478,10 @@
                         <div className="grid grid-cols-3 gap-2">
                             <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
                             <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <span className="text-gray-500 flex items-center gap-1"><Clock size={10}/> Giờ:</span>
+                            <span className="col-span-2 font-medium text-gray-800">{timeStr}</span>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                             <span className="text-gray-500 flex items-center gap-1"><FileType size={10}/> Loại:</span>
