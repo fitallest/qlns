@@ -123,7 +123,8 @@
             });
             setRevenues(relevantRevs);
             
-            setProjects(allProjs.filter(p => p.userId === user.id));
+            const relevantProjCodes = new Set(relevantRevs.map(r => r.contractCode).filter(Boolean));
+            setProjects(allProjs.filter(p => p.userId === user.id || relevantProjCodes.has(p.contractCode)));
             setCurrentMonthTarget(target);
             setAllUsers(users);
 
@@ -197,6 +198,10 @@
                         if (!prev.contractCode && info.contractCode) {
                             updates.contractCode = info.contractCode;
                         }
+                        if (!prev.supportId && info.supportPersonId) {
+                            updates.supportId = info.supportPersonId;
+                            updates.supportName = info.supportPersonName;
+                        }
                         return updates;
                     });
                 } else if (type === 'PROJ') {
@@ -208,6 +213,7 @@
                         region: prev.region || info.city,
                         source: prev.source || info.source,
                         industry: prev.industry || '', // Although service might not return industry yet, prepare for it
+                        jointSigner: prev.jointSigner || info.supportPersonName || ''
                     }));
                 }
             }
@@ -276,7 +282,8 @@
                         address: editingRev.tempAddress || '', 
                         industry: editingRev.tempIndustry || '', // Save Industry
                         contractValue: finalContractValue, 
-                        signDate: editingRev.signDate || revData.date 
+                        signDate: editingRev.signDate || revData.date,
+                        jointSigner: revData.supportName || ''
                     });
                 } else {
                     // If project exists but signDate is missing, update it
@@ -685,7 +692,7 @@
                             </div>
                             <div className="font-bold text-gray-800 text-lg">{item.customerName}</div>
                             <div className="text-xs text-gray-500 flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
-                                <span className="flex items-center gap-1"><Clock size={12}/> Tư vấn lúc: {timeStr}</span>
+                                <span className="flex items-center gap-1"><Clock size={12}/> Tư vấn lúc: {timeStr} {item.duration ? `(${item.duration} phút)` : ''}</span>
                                 <span className="flex items-center gap-1"><Phone size={12}/> {item.phone}</span>
                                 {item.supportPersonName && <span className="text-gray-400 pl-2 border-l">Hỗ trợ: {item.supportPersonName}</span>}
                             </div>
@@ -1209,18 +1216,21 @@
             <div className="space-y-4 p-1">
                 <div className="grid grid-cols-2 gap-4">
                     <Input label="Ngày giờ tư vấn" type="datetime-local" value={editingCons.date ? editingCons.date.substring(0, 16) : ''} onChange={e => setEditingCons({...editingCons, date: e.target.value})} />
+                    <Input label="Thời lượng (phút)" type="number" value={editingCons.duration || ''} onChange={e => setEditingCons({...editingCons, duration: Number(e.target.value)})} placeholder="VD: 30" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
                     <Input label="Số điện thoại" value={editingCons.phone || ''} onChange={e => setEditingCons({...editingCons, phone: e.target.value})} onBlur={(e) => autofillCustomerInfo(e.target.value, 'CONS')} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
                     <Input label="Tên khách hàng" value={editingCons.customerName || ''} onChange={e => setEditingCons({...editingCons, customerName: e.target.value})} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
                     <Input label="Tên công ty / Thương hiệu" value={editingCons.companyName || ''} onChange={e => setEditingCons({...editingCons, companyName: e.target.value})} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
                     <Input label="Địa chỉ" value={editingCons.addressDetail || ''} onChange={e => setEditingCons({...editingCons, addressDetail: e.target.value})} />
-                    <Input label="Nguồn khách hàng" value={editingCons.source || ''} onChange={e => setEditingCons({...editingCons, source: e.target.value})} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
+                    <Input label="Nguồn khách hàng" value={editingCons.source || ''} onChange={e => setEditingCons({...editingCons, source: e.target.value})} />
                     <Select label="Loại hình" options={Object.values(ConsultationType).map(t => ({value: t, label: t}))} value={editingCons.type || ConsultationType.NEW} onChange={e => setEditingCons({...editingCons, type: e.target.value as ConsultationType})} />
+                </div>
+                <div className="grid grid-cols-1 gap-4">
                     <Select label="Hình thức hỗ trợ" options={Object.values(SupportType).map(t => ({value: t, label: t}))} value={editingCons.supportType || SupportType.SOLO} onChange={e => setEditingCons({...editingCons, supportType: e.target.value as SupportType})} />
                 </div>
                 {editingCons.supportType !== SupportType.SOLO && (
