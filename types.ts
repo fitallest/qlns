@@ -30,7 +30,8 @@ export enum AppointmentStatus {
   PENDING = 'Lưỡng lự',
   INTERESTED = 'Quan tâm',
   CLOSED = 'Chốt',
-  CANCELLED = 'Hủy'
+  CANCELLED = 'Hủy',
+  POSTPONED = 'Dời hẹn'
 }
 
 // Hierarchy Roles
@@ -120,8 +121,10 @@ export interface Consultation {
   type: ConsultationType;
   supportType: SupportType; 
   supportPersonName?: string;
+  supportPersonId?: string; // ID of support person
   notes?: string;
   date: string;
+  time?: string; // Specific time for the consultation
 }
 
 export interface Revenue {
