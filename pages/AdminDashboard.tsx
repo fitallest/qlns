@@ -1,1310 +1,1592 @@
-    import React, { useState, useEffect, useMemo, useCallback } from 'react';
-    import { User, Appointment, Consultation, Revenue, MonthlyTarget, ROLE_RANK, Department, ROLE_LABELS, AppointmentStatus } from '../types';
-    import { storageService } from '../services/storageService';
-    import { Loader2, Calendar as CalendarIcon, Users, DollarSign, Target, ChevronLeft, ChevronRight, Settings, Filter, Eye, X, Bell, Clock, User as UserIcon, FileText, Phone, MapPin, FileType } from 'lucide-react';
-    import { Card, Button, Select, Modal, Badge } from '../components/ui';
 
-    interface TeamManagementProps {
-        currentUser: User;
-        onBack: () => void;
-    }
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { storageService } from '../services/storageService';
+import { User, Department, Appointment, Revenue, Message, UserRole, ROLE_RANK, ROLE_LABELS, DepartmentLevel, ProjectProfile, ActivityLog, Consultation, MonthlyTarget } from '../types';
+import { Button, Input, Modal, Select, Card, Badge, Combobox } from '../components/ui';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { Users, TrendingUp, Calendar, Edit, Trash2, Eye, ArrowLeft, Send, MessageSquare, Search, LayoutGrid, Loader2, GitMerge, CornerDownRight, CheckCircle, Filter, Briefcase, Building2, Crown, UserCircle, Users as UsersIcon, X, ChevronRight, Trophy, AlertTriangle, RotateCcw, ShieldAlert, Activity, AlertOctagon } from 'lucide-react';
+import { EmployeeDashboard } from './EmployeeDashboard';
 
-    export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, onBack }) => {
-        const [loading, setLoading] = useState(true);
-        const [subordinates, setSubordinates] = useState<User[]>([]);
-        const [departments, setDepartments] = useState<Department[]>([]);
-        const [appointments, setAppointments] = useState<Appointment[]>([]);
-        const [consultations, setConsultations] = useState<Consultation[]>([]);
-        const [revenues, setRevenues] = useState<Revenue[]>([]);
-        const [targets, setTargets] = useState<MonthlyTarget[]>([]);
+interface AdminDashboardProps {
+    currentUser: User; 
+}
+
+// Helper interface for tree structure
+interface StructuredUser extends User {
+    _depth: number;
+    _isManager?: boolean;
+    _deptName?: string;
+}
+
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser }) => {
+  const manager = currentUser;
+  const [loading, setLoading] = useState(true);
+
+  // Tabs state
+  const [activeTab, setActiveTab] = useState<'personal' | 'dashboard' | 'staff' | 'depts' | 'chat' | 'logs' | 'consults'>('dashboard');
+  
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [allRevenues, setAllRevenues] = useState<Revenue[]>([]);
+  const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
+  const [allConsultations, setAllConsultations] = useState<Consultation[]>([]); // Added Consultation State
+  const [allProjects, setAllProjects] = useState<ProjectProfile[]>([]);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [currentMonthTarget, setCurrentMonthTarget] = useState<MonthlyTarget | null>(null);
+  const [allTargets, setAllTargets] = useState<MonthlyTarget[]>([]);
+  const [isTargetModalOpen, setTargetModalOpen] = useState(false);
+  const [editingTarget, setEditingTarget] = useState<Partial<MonthlyTarget>>({});
+
+  // --- TOP 10 TAB STATE ---
+  const [top10Tab, setTop10Tab] = useState<'COMPANY' | 'REGION'>('REGION');
+
+  // --- DELETE UNDO STATE ---
+  const [undoState, setUndoState] = useState<{ id: string } | null>(null);
+  const [undoCountDown, setUndoCountDown] = useState(0);
+
+  // --- DATE FILTER STATE (Default: Current Month) ---
+  const [startDate, setStartDate] = useState(() => {
+      const date = new Date();
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      return `${yyyy}-${mm}-01`;
+  });
+  const [endDate, setEndDate] = useState(() => {
+      const date = new Date();
+      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      const yyyy = lastDay.getFullYear();
+      const mm = String(lastDay.getMonth() + 1).padStart(2, '0');
+      const dd = String(lastDay.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+  });
+
+  // --- MULTI-LEVEL FILTER STATE ---
+  const [filterRegion, setFilterRegion] = useState('');
+  const [filterGroup, setFilterGroup] = useState('');
+  const [filterDept, setFilterDept] = useState('');
+  const [filterTeam, setFilterTeam] = useState('');
+  const [filterUser, setFilterUser] = useState('');
+  const [filterRole, setFilterRole] = useState(''); 
+
+  const [allMessages, setAllMessages] = useState<Message[]>([]);
+  const [selectedChatUser, setSelectedChatUser] = useState<string | null>(null);
+  const [adminChatInput, setAdminChatInput] = useState('');
+  const [chatSearchTerm, setChatSearchTerm] = useState('');
+  const [chatFilterRole, setChatFilterRole] = useState<string>('');
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const [isMsgModalOpen, setMsgModalOpen] = useState(false);
+  const [msgContent, setMsgContent] = useState('');
+  const [msgTargetType, setMsgTargetType] = useState<'ALL' | 'DEPT' | 'USER'>('ALL');
+  const [msgTargetId, setMsgTargetId] = useState('');
+
+  const [isUserModalOpen, setUserModalOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [formUser, setFormUser] = useState<Partial<User> & { 
+      newDeptName?: string, 
+      newDeptParentId?: string 
+  }>({});
+
+  const [isDeptModalOpen, setDeptModalOpen] = useState(false);
+  const [editingDeptId, setEditingDeptId] = useState<string | null>(null);
+  const [formDept, setFormDept] = useState<Partial<Department>>({ level: DepartmentLevel.DEPARTMENT });
+
+  const [viewingUser, setViewingUser] = useState<User | null>(null);
+  
+  const myRank = ROLE_RANK[manager.role];
+  const canEditStructure = myRank >= 4;
+
+  const refreshData = async () => {
+      setLoading(true);
+      const currentMonthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+      try {
+          const [u, d, r, a, cons, m, p, act, target, targets] = await Promise.all([
+              storageService.getUsers(),
+              storageService.getDepartments(),
+              storageService.getRevenues(),
+              storageService.getAppointments(),
+              storageService.getConsultations(), // Fetch Consultations
+              storageService.getMessages(),
+              storageService.getProjects(),
+              // Fetch only current user's activities
+              storageService.getActivities(currentUser.id),
+              storageService.getMonthlyTarget(currentUser.id, currentMonthStart),
+              storageService.getTargetsByMonth(currentMonthStart)
+          ]);
+          setAllUsers(u);
+          setDepartments(d);
+          setAllRevenues(r);
+          setAllAppointments(a);
+          setAllConsultations(cons); // Set Consultations
+          setAllMessages(m);
+          setAllProjects(p);
+          setActivities(act);
+          setCurrentMonthTarget(target);
+          setAllTargets(targets);
+      } catch (error) {
+          console.error("Failed to load data", error);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleSaveTarget = async () => {
+      try {
+          const currentMonthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+          const targetId = `${currentUser.id}_${currentMonthStart.replace(/-/g, '_')}`;
+          const targetData: MonthlyTarget = {
+              id: targetId,
+              userId: currentUser.id,
+              monthStr: currentMonthStart,
+              targetRevenue: Number(editingTarget.targetRevenue) || 0,
+              targetAppointment: Number(editingTarget.targetAppointment) || 0,
+              targetConsultation: Number(editingTarget.targetConsultation) || 0
+          };
+          await storageService.saveMonthlyTarget(targetData);
+          setCurrentMonthTarget(targetData);
+          setTargetModalOpen(false);
+      } catch (e: any) { alert(e.message); }
+  };
+
+  const silentRefreshMsg = async () => {
+      const m = await storageService.getMessages();
+      setAllMessages(m);
+  };
+
+  useEffect(() => {
+     refreshData();
+     const interval = setInterval(() => {
+         silentRefreshMsg();
+     }, 10000); 
+     return () => clearInterval(interval);
+  }, []);
+
+  // --- AUTO-FILL HIERARCHY BASED ON USER ROLE ---
+  useEffect(() => {
+      if (departments.length === 0 || !manager.departmentId) return;
+
+      const fillHierarchy = (deptId: string) => {
+          const dept = departments.find(d => d.id === deptId);
+          if (!dept) return;
+
+          // Recursively find parents
+          const ancestors: Record<string, string> = {}; 
+          let current = dept;
+          // Put current first
+          if (current.level === DepartmentLevel.REGION) setFilterRegion(current.id);
+          if (current.level === DepartmentLevel.GROUP) setFilterGroup(current.id);
+          if (current.level === DepartmentLevel.DEPARTMENT) setFilterDept(current.id);
+          if (current.level === DepartmentLevel.TEAM) setFilterTeam(current.id);
+
+          // Trace up
+          let safety = 0;
+          while (current.parentId && safety < 10) {
+              const parent = departments.find(d => d.id === current.parentId);
+              if (parent) {
+                  if (parent.level === DepartmentLevel.REGION) setFilterRegion(parent.id);
+                  if (parent.level === DepartmentLevel.GROUP) setFilterGroup(parent.id);
+                  if (parent.level === DepartmentLevel.DEPARTMENT) setFilterDept(parent.id);
+                  current = parent;
+              } else {
+                  break;
+              }
+              safety++;
+          }
+      };
+
+      fillHierarchy(manager.departmentId);
+  }, [departments, manager.departmentId]);
+
+  // UNDO TIMER & EXECUTION EFFECT
+  useEffect(() => {
+      if (!undoState) return;
+
+      if (undoCountDown > 0) {
+          const timer = setTimeout(() => setUndoCountDown(c => c - 1), 1000);
+          return () => clearTimeout(timer);
+      } else {
+          // Fix: Execute delete strictly when countdown hits 0
+          const executeDelete = async () => {
+              try {
+                  await storageService.deleteDepartment(undoState.id);
+                  // Refresh ONLY after delete is confirmed finished
+                  await refreshData();
+              } catch(e: any) {
+                  alert("Lỗi xóa: " + e.message);
+              } finally {
+                  setUndoState(null);
+              }
+          };
+          executeDelete();
+      }
+  }, [undoCountDown, undoState]);
+
+  useEffect(() => {
+     if(activeTab === 'chat' && selectedChatUser) {
+         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+     }
+  }, [allMessages, selectedChatUser, activeTab]);
+
+  // --- STRICT SUBORDINATE LOGIC ---
+  const mySubordinates = useMemo(() => {
+      if (manager.role === UserRole.DIRECTOR) {
+          return allUsers; 
+      }
+
+      if (myRank <= 1) return [manager];
+
+      const visibleUserIds = new Set<string>();
+      const managedDeptIds = new Set<string>();
+      
+      const directDepts = departments.filter(d => d.managerId === manager.id);
+      
+      const deptQueue = [...directDepts];
+      while (deptQueue.length > 0) {
+          const curr = deptQueue.pop()!;
+          managedDeptIds.add(curr.id);
+          const children = departments.filter(d => d.parentId === curr.id);
+          deptQueue.push(...children);
+      }
+
+      allUsers.forEach(u => {
+          if (u.departmentId && managedDeptIds.has(u.departmentId)) {
+               if (u.id !== manager.id) visibleUserIds.add(u.id);
+          }
+      });
+      
+      departments.forEach(d => {
+          if (managedDeptIds.has(d.id) && d.managerId && d.managerId !== manager.id) {
+              visibleUserIds.add(d.managerId);
+          }
+      });
+
+      const result = allUsers.filter(u => visibleUserIds.has(u.id));
+      return [manager, ...result];
+  }, [allUsers, departments, manager, myRank]);
+
+  // --- TREE SORT LOGIC (HIERARCHICAL) ---
+  const structuredUsers = useMemo(() => {
+      if (mySubordinates.length <= 1) return []; 
+
+      const result: StructuredUser[] = [];
+      const processedUserIds = new Set<string>();
+      
+      const getDeptWeight = (level?: DepartmentLevel) => {
+        switch(level) {
+            case DepartmentLevel.HQ: return 5;
+            case DepartmentLevel.REGION: return 4;
+            case DepartmentLevel.GROUP: return 3;
+            case DepartmentLevel.DEPARTMENT: return 2;
+            case DepartmentLevel.TEAM: return 1;
+            default: return 0;
+        }
+      };
+
+      const traverse = (deptId: string, depth: number) => {
+          const dept = departments.find(d => d.id === deptId);
+          if (!dept) return;
+
+          if (dept.managerId && dept.managerId !== manager.id && !processedUserIds.has(dept.managerId)) {
+              const mgr = mySubordinates.find(u => u.id === dept.managerId);
+              if (mgr) {
+                  result.push({ ...mgr, _depth: depth, _isManager: true, _deptName: dept.name });
+                  processedUserIds.add(mgr.id);
+              }
+          }
+
+          const employees = mySubordinates.filter(u => 
+              u.departmentId === deptId && 
+              u.id !== dept.managerId && 
+              u.id !== manager.id &&
+              !processedUserIds.has(u.id)
+          ).sort((a, b) => a.name.localeCompare(b.name));
+
+          employees.forEach(emp => {
+              result.push({ ...emp, _depth: depth + 1, _isManager: false, _deptName: dept.name });
+              processedUserIds.add(emp.id);
+          });
+
+          const subDepts = departments
+              .filter(d => d.parentId === deptId)
+              .sort((a, b) => (getDeptWeight(b.level) - getDeptWeight(a.level)) || a.name.localeCompare(b.name));
+
+          subDepts.forEach(sub => traverse(sub.id, depth + 1));
+      };
+
+      const rootDepts = departments.filter(d => d.managerId === manager.id);
+      
+      if (rootDepts.length > 0) {
+          rootDepts.forEach(d => traverse(d.id, 0));
+      } else {
+          if (manager.role === UserRole.DIRECTOR) {
+               const hq = departments.find(d => d.level === DepartmentLevel.HQ);
+               if(hq) traverse(hq.id, 0);
+          }
+      }
+
+      const orphans = mySubordinates.filter(u => !processedUserIds.has(u.id) && u.id !== manager.id);
+      orphans.forEach(u => result.push({ ...u, _depth: 0, _isManager: false, _deptName: 'Chưa phân bổ / Khác' }));
+
+      return result;
+  }, [mySubordinates, departments, manager]);
+
+  // --- HIERARCHY FILTER LOGIC ---
+  const regionOptions = useMemo(() => departments.filter(d => d.level === DepartmentLevel.REGION), [departments]);
+  const groupOptions = useMemo(() => !filterRegion ? [] : departments.filter(d => d.level === DepartmentLevel.GROUP && d.parentId === filterRegion), [departments, filterRegion]);
+  const deptOptions = useMemo(() => !filterGroup ? [] : departments.filter(d => d.level === DepartmentLevel.DEPARTMENT && d.parentId === filterGroup), [departments, filterGroup]);
+  const teamOptions = useMemo(() => !filterDept ? [] : departments.filter(d => d.level === DepartmentLevel.TEAM && d.parentId === filterDept), [departments, filterDept]);
+
+  // --- ORPHAN/ERROR DEPTS (Ghosts) ---
+  const orphanDepts = useMemo(() => {
+      // Find departments that are NOT HQ, but have no parent, OR have no level (undefined)
+      return departments.filter(d => (d.level !== DepartmentLevel.HQ && !d.parentId) || !d.level);
+  }, [departments]);
+
+  // Auto-clear children filters when parent filter changes (Only if not set by auto-fill logic implicitly, but React batching handles this)
+  useEffect(() => { 
+      if (!groupOptions.some(g => g.id === filterGroup)) setFilterGroup(''); 
+  }, [filterRegion, groupOptions]);
+  useEffect(() => { 
+      if (!deptOptions.some(d => d.id === filterDept)) setFilterDept(''); 
+  }, [filterGroup, deptOptions]);
+  useEffect(() => { 
+      if (!teamOptions.some(t => t.id === filterTeam)) setFilterTeam(''); 
+  }, [filterDept, teamOptions]);
+  useEffect(() => { setFilterUser(''); }, [filterTeam]);
+
+  // --- HELPER: CHECK DATE RANGE ---
+  const isInRange = (dateStr: string) => {
+      if (!dateStr) return false;
+      const d = dateStr.split('T')[0];
+      return d >= startDate && d <= endDate;
+  };
+
+  // --- DASHBOARD DATA CALCULATION ---
+  const dashboardStats = useMemo(() => {
+      // Helper to calculate revenue share
+      const getRevenueShare = (r: Revenue, uid: string) => {
+          const amount = Number(r.amountCollected) || 0;
+          
+          let effectiveSupportId = r.supportId;
+          if (!effectiveSupportId && r.contractCode) {
+              const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+              const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+              if (revWithSupport) {
+                  effectiveSupportId = revWithSupport.supportId;
+              }
+          }
+
+          const hasSupport = Boolean(effectiveSupportId && String(effectiveSupportId).trim() !== '');
+
+          if (r.userId === uid) {
+              return hasSupport ? amount / 2 : amount;
+          }
+          if (effectiveSupportId === uid) {
+              return amount / 2;
+          }
+          return 0;
+      };
+
+      // 1. Personal Stats
+      const myTotalRevenue = allRevenues
+          .filter(r => isInRange(r.date))
+          .reduce((sum, r) => sum + getRevenueShare(r, manager.id), 0);
+      
+      const myAppointments = allAppointments.filter(a => a.userId === manager.id && isInRange(a.reportedTime || a.date));
+      const myConsultations = allConsultations.filter(c => (c.userId === manager.id || c.supportPersonId === manager.id) && isInRange(c.date));
+
+      // 2. Team Stats (Hierarchical)
+      let targetUserIds = new Set<string>();
+      const scopeId = filterTeam || filterDept || filterGroup || filterRegion;
+
+      if (filterUser) {
+          targetUserIds.add(filterUser);
+      } else if (scopeId) {
+          // Recursive collection of ALL descendant departments under the selected scope
+          const validDeptIds = new Set<string>();
+          const collectDepts = (rootId: string) => {
+              validDeptIds.add(rootId);
+              departments.filter(d => d.parentId === rootId).forEach(c => collectDepts(c.id));
+          };
+          collectDepts(scopeId);
+
+          mySubordinates.forEach(u => {
+              if (u.id === manager.id) return; 
+              if (u.departmentId && validDeptIds.has(u.departmentId)) {
+                  targetUserIds.add(u.id);
+              }
+          });
+           departments.forEach(d => {
+              if (validDeptIds.has(d.id) && d.managerId && d.managerId !== manager.id) {
+                  if (mySubordinates.some(sub => sub.id === d.managerId)) {
+                      targetUserIds.add(d.managerId);
+                  }
+              }
+          });
+      } else {
+          mySubordinates.forEach(u => { if(u.id !== manager.id) targetUserIds.add(u.id); });
+      }
+      const validTargetIds = new Set([...targetUserIds]); 
+      
+      const teamTotalRevenue = allRevenues
+          .filter(r => isInRange(r.date))
+          .reduce((sum, r) => {
+              let rSum = 0;
+              
+              let effectiveSupportId = r.supportId;
+              if (!effectiveSupportId && r.contractCode) {
+                  const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+                  const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+                  if (revWithSupport) {
+                      effectiveSupportId = revWithSupport.supportId;
+                  }
+              }
+
+              if (validTargetIds.has(r.userId)) {
+                  rSum += getRevenueShare(r, r.userId);
+              }
+              if (effectiveSupportId && validTargetIds.has(effectiveSupportId)) {
+                  rSum += getRevenueShare(r, effectiveSupportId);
+              }
+              return sum + rSum;
+          }, 0);
+
+      const teamAppointments = allAppointments.filter(a => validTargetIds.has(a.userId) && isInRange(a.reportedTime || a.date));
+      const teamConsultations = allConsultations.filter(c => (validTargetIds.has(c.userId) || (c.supportPersonId && validTargetIds.has(c.supportPersonId))) && isInRange(c.date));
+
+      // 3. Top Employees Calculation
+      
+      // A. Global (Whole Company)
+      const empRevMapGlobal: Record<string, number> = {};
+      allRevenues.filter(r => isInRange(r.date)).forEach(r => {
+          let effectiveSupportId = r.supportId;
+          if (!effectiveSupportId && r.contractCode) {
+              const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+              const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+              if (revWithSupport) {
+                  effectiveSupportId = revWithSupport.supportId;
+              }
+          }
+
+          // Owner share
+          const ownerShare = effectiveSupportId ? r.amountCollected / 2 : r.amountCollected;
+          empRevMapGlobal[r.userId] = (empRevMapGlobal[r.userId] || 0) + ownerShare;
+          
+          // Support share
+          if (effectiveSupportId) {
+              const supportShare = r.amountCollected / 2;
+              empRevMapGlobal[effectiveSupportId] = (empRevMapGlobal[effectiveSupportId] || 0) + supportShare;
+          }
+      });
+      const topEmployeesGlobal = Object.entries(empRevMapGlobal)
+        .map(([uid, val]) => ({ name: allUsers.find(u => u.id === uid)?.name || uid, value: val, id: uid }))
+        .sort((a,b) => b.value - a.value)
+        .slice(0, 10);
+
+      // B. Regional / Filtered Scope (FIXED LOGIC)
+      let regionTargetIds = new Set<string>();
+
+      // Step 1: Determine the "Root Region ID" context
+      let currentRegionId = filterRegion;
+      
+      if (!currentRegionId) {
+          if (manager.role === UserRole.DIRECTOR) {
+          } else {
+              let currDept = departments.find(d => d.id === manager.departmentId);
+              if (!currDept) {
+                  const managedDept = departments.find(d => d.managerId === manager.id);
+                  if (managedDept) currDept = managedDept;
+              }
+              let tempDept = currDept;
+              let safety = 0;
+              while (tempDept && tempDept.level !== DepartmentLevel.REGION && safety < 10) {
+                  if (tempDept.parentId) {
+                       tempDept = departments.find(d => d.id === tempDept!.parentId);
+                  } else {
+                      break;
+                  }
+                  safety++;
+              }
+              if (tempDept && tempDept.level === DepartmentLevel.REGION) {
+                  currentRegionId = tempDept.id;
+              }
+          }
+      }
+
+      if (currentRegionId) {
+          const regionDeptIds = new Set<string>();
+          const collectDepts = (rootId: string) => {
+              regionDeptIds.add(rootId);
+              departments.filter(d => d.parentId === rootId).forEach(c => collectDepts(c.id));
+          };
+          collectDepts(currentRegionId);
+
+          allUsers.forEach(u => {
+              if (u.departmentId && regionDeptIds.has(u.departmentId)) {
+                  regionTargetIds.add(u.id);
+              }
+              const managedDept = departments.find(d => d.managerId === u.id);
+              if (managedDept && regionDeptIds.has(managedDept.id)) {
+                  regionTargetIds.add(u.id);
+              }
+          });
+      } else {
+          regionTargetIds = validTargetIds;
+          if (!filterUser) regionTargetIds.add(manager.id);
+      }
+
+      const empRevMapLocal: Record<string, number> = {};
+      Object.keys(empRevMapGlobal).forEach(uid => {
+          if (regionTargetIds.has(uid)) {
+              empRevMapLocal[uid] = empRevMapGlobal[uid];
+          }
+      });
+
+      const topEmployeesLocal = Object.entries(empRevMapLocal)
+        .map(([uid, val]) => ({ name: allUsers.find(u => u.id === uid)?.name || uid, value: val, id: uid }))
+        .sort((a,b) => b.value - a.value)
+        .slice(0, 10);
+
+      // Chart Data
+      const chartTargetIds = new Set(validTargetIds);
+      chartTargetIds.add(manager.id);
+      
+      const monthlyData: Record<string, number> = {};
+      allRevenues.forEach(r => {
+          if (!isInRange(r.date)) return;
+          const month = r.date.substring(0, 7);
+          let amount = 0;
+          
+          let effectiveSupportId = r.supportId;
+          if (!effectiveSupportId && r.contractCode) {
+              const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+              const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+              if (revWithSupport) {
+                  effectiveSupportId = revWithSupport.supportId;
+              }
+          }
+
+          if (chartTargetIds.has(r.userId)) {
+              amount += effectiveSupportId ? r.amountCollected / 2 : r.amountCollected;
+          }
+          if (effectiveSupportId && chartTargetIds.has(effectiveSupportId)) {
+              amount += r.amountCollected / 2;
+          }
+          if (amount > 0) {
+              monthlyData[month] = (monthlyData[month] || 0) + amount;
+          }
+      });
+      const chartData = Object.keys(monthlyData).sort().map(k => ({ name: k, revenue: monthlyData[k] }));
+      
+      let conclusion = "Số liệu trong khoảng thời gian này.";
+
+      // 4. Full Employee Stats (Detailed Table)
+      const today = new Date().toISOString().split('T')[0];
+      const fullEmployeeStats = Array.from(validTargetIds).map(uid => {
+          const user = allUsers.find(u => u.id === uid);
+          const target = allTargets.find(t => t.userId === uid);
+          
+          // Revenue
+          const revenue = allRevenues
+              .filter(r => isInRange(r.date))
+              .reduce((sum, r) => sum + getRevenueShare(r, uid), 0);
+          
+          // Apps
+          const apps = allAppointments.filter(a => a.userId === uid && isInRange(a.reportedTime || a.date)).length;
+          
+          // Cons
+          const cons = allConsultations.filter(c => (c.userId === uid || c.supportPersonId === uid) && isInRange(c.date)).length;
+
+          // Today Stats
+          const revenueToday = allRevenues
+              .filter(r => r.date === today)
+              .reduce((sum, r) => sum + getRevenueShare(r, uid), 0);
+          
+          const appsToday = allAppointments.filter(a => a.userId === uid && (a.reportedTime || a.date).startsWith(today)).length;
+          const consToday = allConsultations.filter(c => (c.userId === uid || c.supportPersonId === uid) && c.date === today).length;
+
+          return {
+              id: uid,
+              name: user?.name || uid,
+              targetRevenue: target?.targetRevenue || 0,
+              revenue,
+              apps,
+              cons,
+              revenueToday,
+              appsToday,
+              consToday
+          };
+      }).sort((a, b) => b.revenue - a.revenue);
+
+      return {
+          personal: { revenue: myTotalRevenue, apps: myAppointments.length, cons: myConsultations.length, user: manager },
+          team: { revenue: teamTotalRevenue, apps: teamAppointments.length, cons: teamConsultations.length, count: validTargetIds.size },
+          chartData, conclusion, topEmployeesGlobal, topEmployeesLocal, fullEmployeeStats, filteredConsultations: teamConsultations
+      };
+
+  }, [allRevenues, allAppointments, allConsultations, manager, filterUser, filterTeam, filterDept, filterGroup, filterRegion, mySubordinates, startDate, endDate, allUsers, departments, allTargets]);
+
+  const getCumulativeHeadcount = (deptId: string): number => {
+      const uniqueUserIds = new Set<string>();
+      const collectUsers = (currentDeptId: string) => {
+          const currentDept = departments.find(d => d.id === currentDeptId);
+          if (currentDept && currentDept.managerId) uniqueUserIds.add(currentDept.managerId);
+          allUsers.filter(u => u.departmentId === currentDeptId).forEach(u => uniqueUserIds.add(u.id));
+          departments.filter(d => d.parentId === currentDeptId).forEach(child => collectUsers(child.id));
+      };
+      collectUsers(deptId);
+      return uniqueUserIds.size;
+  };
+
+  const chatUsers = useMemo(() => {
+      // 1. Search Mode: Search EVERYONE in the system by Name or ID
+      if (chatSearchTerm) {
+          const term = chatSearchTerm.toLowerCase();
+          return allUsers.filter(u => 
+              u.id !== manager.id && 
+              (u.name.toLowerCase().includes(term) || u.id.toLowerCase().includes(term))
+          );
+      }
+
+      // 2. Default Mode: History + Same Department
+      const interactedUserIds = new Set<string>();
+      
+      // A. History: Users who have exchanged messages
+      allMessages.forEach(m => {
+          if (m.senderId === manager.id && m.receiverId !== 'ADMIN' && typeof m.receiverId === 'string') {
+              interactedUserIds.add(m.receiverId);
+          }
+          if (m.receiverId === manager.id) {
+              interactedUserIds.add(m.senderId);
+          }
+      });
+
+      // B. Same Department: Users in the exact same department
+      if (manager.departmentId) {
+          allUsers.forEach(u => {
+              if (u.departmentId === manager.departmentId && u.id !== manager.id) {
+                  interactedUserIds.add(u.id);
+              }
+          });
+      }
+
+      // Filter users based on the Set
+      let filtered = allUsers.filter(u => interactedUserIds.has(u.id));
+
+      if (chatFilterRole) filtered = filtered.filter(u => u.role === chatFilterRole);
+      return filtered;
+  }, [allUsers, allMessages, manager.id, manager.departmentId, chatSearchTerm, chatFilterRole]);
+
+  const currentConversation = useMemo(() => {
+      if (!selectedChatUser) return [];
+      return allMessages.filter(m => {
+          const isMeSender = m.senderId === manager.id;
+          const isMeReceiver = m.receiverId === manager.id || (manager.role === UserRole.DIRECTOR && m.receiverId === 'ADMIN');
+          const isOtherSender = m.senderId === selectedChatUser;
+          const isOtherReceiver = m.receiverId === selectedChatUser;
+          if (isMeSender && isOtherReceiver) return true;
+          if (isOtherSender && isMeReceiver) return true;
+          return false;
+      }).sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [allMessages, selectedChatUser, manager.id, manager.role]);
+
+  const handleAdminReply = async () => {
+      if (!selectedChatUser || !adminChatInput.trim()) return;
+      const newMsg: Message = { id: `MSG${Date.now()}`, senderId: manager.id, senderName: manager.name, receiverId: selectedChatUser, content: adminChatInput, timestamp: new Date().toISOString(), isRead: false };
+      setAllMessages(prev => [...prev, newMsg]); setAdminChatInput('');
+      await storageService.sendMessage(newMsg);
+  };
+
+  const handleSendMessage = async () => {
+      if (!msgContent) return;
+      let receiverIds: string[] = [];
+      if (msgTargetType === 'ALL') {
+          receiverIds = mySubordinates.filter(u => u.id !== manager.id).map(u => u.id);
+      } else if (msgTargetType === 'USER') {
+          if (msgTargetId) receiverIds = [msgTargetId];
+      } else if (msgTargetType === 'DEPT') {
+          if (msgTargetId) {
+             const targetDeptIds = new Set<string>();
+             const collectDepts = (dId: string) => {
+                 targetDeptIds.add(dId);
+                 departments.filter(d => d.parentId === dId).forEach(c => collectDepts(c.id));
+             };
+             collectDepts(msgTargetId);
+             mySubordinates.forEach(u => {
+                 if (u.departmentId && targetDeptIds.has(u.departmentId) && u.id !== manager.id) {
+                     receiverIds.push(u.id);
+                 }
+                 departments.forEach(d => { if(targetDeptIds.has(d.id) && d.managerId && d.managerId !== manager.id) receiverIds.push(d.managerId); });
+             });
+             receiverIds = [...new Set(receiverIds)];
+          }
+      }
+      if (receiverIds.length === 0) return alert("Không tìm thấy người nhận phù hợp!");
+      await storageService.sendMessage({ id: `MSG${Date.now()}`, senderId: manager.id, senderName: manager.name, receiverId: receiverIds, content: msgContent, timestamp: new Date().toISOString(), isRead: false });
+      alert(`Đã gửi thông báo thành công cho ${receiverIds.length} nhân sự!`); setMsgModalOpen(false); setMsgContent(''); silentRefreshMsg();
+  };
+
+  const calculateTotalRevenue = (user: User) => {
+      const earned = allRevenues.reduce((sum, r) => {
+          let effectiveSupportId = r.supportId;
+          if (!effectiveSupportId && r.contractCode) {
+              const projectRevs = allRevenues.filter(rev => rev.contractCode === r.contractCode);
+              const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
+              if (revWithSupport) {
+                  effectiveSupportId = revWithSupport.supportId;
+              }
+          }
+
+          // If user is owner and there is support -> 50%
+          if (r.userId === user.id && effectiveSupportId) {
+              return sum + (r.amountCollected / 2);
+          }
+          // If user is support -> 50%
+          if (effectiveSupportId === user.id) {
+              return sum + (r.amountCollected / 2);
+          }
+          // If user is owner and no support -> 100%
+          if (r.userId === user.id && !effectiveSupportId) {
+              return sum + r.amountCollected;
+          }
+          return sum;
+      }, 0);
+      return earned + (user.initialRevenue || 0);
+  };
+
+  const openAddUser = () => { setEditingUserId(null); setFormUser({ role: UserRole.EMPLOYEE, initialRevenue: 0, managerId: manager.id }); setUserModalOpen(true); };
+  const openEditUser = (user: User) => { setEditingUserId(user.id); setFormUser({ ...user }); setUserModalOpen(true); };
+  
+  const handleSubmitUser = async () => {
+    if (!formUser.id || !formUser.name || !formUser.password) return alert("Vui lòng điền đủ thông tin");
+    const targetRank = ROLE_RANK[formUser.role as UserRole];
+    if (manager.role !== UserRole.DIRECTOR && targetRank > myRank) return alert("Cấp bậc không hợp lệ.");
+    
+    const isManagerRole = [UserRole.REGIONAL_MANAGER, UserRole.GROUP_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEADER].includes(formUser.role as UserRole);
+
+    try {
+        let finalDeptId = formUser.departmentId;
+
+        // AUTOMATIC DEPARTMENT CREATION FOR MANAGERS
+        if (isManagerRole && !editingUserId) {
+             // 1. Determine Level based on Role
+             const deptLevelMap: Record<string, DepartmentLevel> = {
+                [UserRole.REGIONAL_MANAGER]: DepartmentLevel.REGION,
+                [UserRole.GROUP_MANAGER]: DepartmentLevel.GROUP,
+                [UserRole.MANAGER]: DepartmentLevel.DEPARTMENT,
+                [UserRole.TEAM_LEADER]: DepartmentLevel.TEAM
+             };
+             const targetLevel = deptLevelMap[formUser.role as string];
+
+             // 2. If user is creating a manager but hasn't assigned them to an EXISTING dept as a leader,
+             //    we assume we need to create a NEW department for them to lead.
+             //    Also validate if Parent ID is required (Region usually doesn't need parent, others do).
+             if (!formUser.departmentId) {
+                 if (targetLevel !== DepartmentLevel.REGION && !formUser.newDeptParentId) {
+                     return alert(`Để tạo ${ROLE_LABELS[formUser.role as UserRole]}, vui lòng chọn "Trực thuộc đơn vị cấp trên" để hệ thống tạo nhóm/phòng tương ứng.`);
+                 }
+
+                 // 3. Check if Department ID already exists (Reuse instead of Create)
+                 const newDeptId = `${targetLevel.substring(0,3).toUpperCase()}_${formUser.id}`; 
+                 const existingDept = departments.find(d => d.id === newDeptId);
+
+                 if (existingDept) {
+                     // Department Exists -> Reuse it
+                     finalDeptId = newDeptId;
+                     // Update Manager Info on Existing Dept to ensure consistency
+                     if (existingDept.managerId !== formUser.id) {
+                         await storageService.updateDepartment({
+                             ...existingDept,
+                             managerId: formUser.id,
+                             managerName: formUser.name
+                         });
+                     }
+                 } else {
+                     // Department Doesn't Exist -> Create New
+                     const autoDeptName = formUser.newDeptName || `${targetLevel} ${formUser.name}`;
+                     await storageService.addDepartment({
+                         id: newDeptId, 
+                         name: autoDeptName, 
+                         level: targetLevel, 
+                         managerId: formUser.id, 
+                         managerName: formUser.name, 
+                         parentId: formUser.newDeptParentId || (targetLevel === DepartmentLevel.REGION ? 'HQ' : null)
+                     });
+                     finalDeptId = newDeptId;
+                 }
+             }
+        } else if (!isManagerRole && !formUser.departmentId && !editingUserId) {
+            // Normal employee must have a department
+             return alert("Vui lòng chọn đơn vị trực thuộc cho nhân viên.");
+        }
+
+        const userData = { ...formUser, departmentId: finalDeptId };
+        // Cleanup temp fields
+        delete userData.newDeptName; 
+        delete userData.newDeptParentId;
+
+        if (editingUserId) await storageService.updateUser(userData as User);
+        else await storageService.addUser({ ...userData, managerId: manager.id } as User);
         
-        // UI State
-        const [visibleColumns, setVisibleColumns] = useState({
-            stt: true,
-            id: true,
-            name: true,
-            joinDate: false,
-            role: false,
-            target: true,
-            revenue: true,
-            appointments: true,
-            consultations: true,
-            todayRevenue: true,
-            todayAppointments: true,
-            todayConsultations: true
-        });
-        const [showColumnModal, setShowColumnModal] = useState(false);
-        const [selectedUserForDetail, setSelectedUserForDetail] = useState<string | null>(null);
-        const [selectedDateForDayDetail, setSelectedDateForDayDetail] = useState<string | null>(null);
-        const [selectedCalendarType, setSelectedCalendarType] = useState<'RESULTS' | 'MEETINGS'>('RESULTS');
-        
-        // Target Editing State
-        const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
-        const [tempTargetValue, setTempTargetValue] = useState<string>('');
+        await refreshData(); 
+        setUserModalOpen(false);
+    } catch (e: any) { alert(e.message); }
+  };
+  
+  const handleDeleteUser = async (id: string) => { if(confirm("Xóa nhân viên này?")) { try { await storageService.deleteUser(id); await refreshData(); } catch(e: any) { alert(e.message); } } };
+  
+  const openAddDept = () => { setEditingDeptId(null); setFormDept({ level: DepartmentLevel.DEPARTMENT }); setDeptModalOpen(true); };
+  const getAvailableParents = (currentLevel?: DepartmentLevel) => {
+     if (!currentLevel || currentLevel === DepartmentLevel.HQ) return [];
+     let allowedParentLevels: DepartmentLevel[] = [];
+     switch (currentLevel) {
+         case DepartmentLevel.REGION: allowedParentLevels = [DepartmentLevel.HQ]; break;
+         case DepartmentLevel.GROUP: allowedParentLevels = [DepartmentLevel.REGION]; break;
+         case DepartmentLevel.DEPARTMENT: allowedParentLevels = [DepartmentLevel.GROUP, DepartmentLevel.REGION]; break;
+         case DepartmentLevel.TEAM: allowedParentLevels = [DepartmentLevel.DEPARTMENT, DepartmentLevel.GROUP, DepartmentLevel.REGION]; break;
+     }
+     return departments.filter(d => allowedParentLevels.includes(d.level));
+  };
+  const handleSubmitDept = async () => {
+      try {
+        if (!formDept.id || !formDept.name) throw new Error("Thiếu ID hoặc Tên phòng");
+        if (!formDept.level) throw new Error("Chưa chọn cấp bậc");
+        if (formDept.level !== DepartmentLevel.HQ && !formDept.parentId) throw new Error("Cần chọn đơn vị cấp trên trực thuộc");
+        if (editingDeptId) {
+             if (editingDeptId !== formDept.id) {
+                 if(!confirm(`Xác nhận đổi Mã từ "${editingDeptId}" sang "${formDept.id}"?\n\nHệ thống sẽ TỰ ĐỘNG CHUYỂN toàn bộ nhân sự và phòng ban con sang mã mới.`)) return;
+                 await storageService.migrateDepartmentId(editingDeptId, formDept as Department);
+             } else await storageService.updateDepartment(formDept as Department);
+        } else await storageService.addDepartment(formDept as Department);
+        await refreshData(); setDeptModalOpen(false);
+      } catch (e: any) { alert("Lỗi: " + e.message); }
+  };
+  const handleRequestDeleteHQ = async (deptId: string) => {
+      const password = window.prompt("Nhập mật khẩu Admin để xác nhận xóa Trụ sở:");
+      if (!password) return;
+      if (password !== currentUser.password) return alert("Mật khẩu không đúng!");
+      setUndoState({ id: deptId }); setUndoCountDown(10);
+  };
+  const handleUndoDelete = () => { setUndoState(null); setUndoCountDown(0); alert("Đã hoàn tác xóa Trụ sở!"); };
+  const handleDeleteDept = async (id: string) => { if(confirm("Xóa phòng này?")) { try { await storageService.deleteDepartment(id); await refreshData(); } catch(e: any) { alert(e.message); } } };
 
-        // Reminders State
-        const [reminders, setReminders] = useState<any[]>([]);
-        const [showReminders, setShowReminders] = useState(false);
+  // --- NEW RENDER TREE NODES (Connected Lines via CSS) ---
+  const renderTreeNodes = (parentId: string | null = null) => {
+    let children: Department[] = [];
+    if (parentId === null) children = departments.filter(d => d.level === DepartmentLevel.HQ);
+    else children = departments.filter(d => d.parentId === parentId);
+    if (children.length === 0) return null;
 
-        // Tooltip State
-        const [tooltipData, setTooltipData] = useState<{ x: number, y: number, item: any, type: 'APP' | 'CONS' | 'REV' } | null>(null);
+    return (
+        <ul className="flex pt-5 relative transition-all duration-500 justify-center">
+            {children.map((dept) => {
+                const cumulativeCount = getCumulativeHeadcount(dept.id);
+                let levelColor = 'bg-white border-gray-200 text-gray-800';
+                let headerColor = 'bg-gray-100 text-gray-600';
+                if (dept.level === DepartmentLevel.HQ) { levelColor = 'bg-blue-900 border-blue-900 text-white'; headerColor = 'bg-blue-800 text-blue-100'; }
+                else if (dept.level === DepartmentLevel.REGION) { levelColor = 'bg-teal-700 border-teal-700 text-white'; headerColor = 'bg-teal-800 text-teal-100'; }
+                else if (dept.level === DepartmentLevel.GROUP) { levelColor = 'bg-white border-teal-600 text-teal-900'; headerColor = 'bg-teal-600 text-white'; }
+                else if (dept.level === DepartmentLevel.DEPARTMENT) { levelColor = 'bg-white border-blue-500 text-gray-800'; headerColor = 'bg-blue-500 text-white'; }
+                else if (dept.level === DepartmentLevel.TEAM) { levelColor = 'bg-white border-gray-300 text-gray-800'; headerColor = 'bg-gray-100 text-gray-600'; }
 
-        // Month Selection (YYYY-MM)
-        const [selectedMonth, setSelectedMonth] = useState(() => {
-            const now = new Date();
-            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        });
+                return (
+                    <li key={dept.id} className="relative float-left text-center list-none p-5 px-2">
+                        {/* Connector Styles */}
+                        <style>{`
+                            ul ul::before { content: ''; position: absolute; top: 0; left: 50%; border-left: 1px solid #ccc; width: 0; height: 20px; }
+                            li::before, li::after { content: ''; position: absolute; top: 0; right: 50%; border-top: 1px solid #ccc; width: 50%; height: 20px; }
+                            li::after { right: auto; left: 50%; border-left: 1px solid #ccc; }
+                            li:only-child::after, li:only-child::before { display: none; }
+                            li:only-child { padding-top: 0; }
+                            li:first-child::before, li:last-child::after { border: 0 none; }
+                            li:last-child::before { border-right: 1px solid #ccc; border-radius: 0 5px 0 0; }
+                            li:first-child::after { border-radius: 5px 0 0 0; }
+                        `}</style>
 
-        const currentTeamName = useMemo(() => {
-            if (!currentUser.departmentId) return 'Chưa phân bổ';
-            const dept = departments.find(d => d.id === currentUser.departmentId);
-            return dept ? dept.name : 'Team';
-        }, [currentUser.departmentId, departments]);
-
-        // Handle Target Save
-        const handleSaveTarget = async (userId: string) => {
-            try {
-                const numValue = parseInt(tempTargetValue.replace(/\D/g, ''), 10) || 0;
-                const targetId = `${userId}_${selectedMonth.replace(/-/g, '_')}`;
-                
-                // Find existing target to preserve other values or create new
-                const existingTarget = targets.find(t => t.userId === userId && t.monthStr === selectedMonth);
-                
-                const newTarget: MonthlyTarget = {
-                    id: targetId,
-                    userId: userId,
-                    monthStr: selectedMonth,
-                    targetRevenue: numValue,
-                    targetAppointment: existingTarget?.targetAppointment || 0,
-                    targetConsultation: existingTarget?.targetConsultation || 0
-                };
-
-                await storageService.saveMonthlyTarget(newTarget);
-                
-                // Update local state
-                setTargets(prev => {
-                    const idx = prev.findIndex(t => t.id === targetId);
-                    if (idx >= 0) {
-                        const newTargets = [...prev];
-                        newTargets[idx] = newTarget;
-                        return newTargets;
-                    } else {
-                        return [...prev, newTarget];
-                    }
-                });
-                
-                setEditingTargetId(null);
-            } catch (error) {
-                console.error("Failed to save target", error);
-                alert("Lỗi khi lưu cam kết");
-            }
-        };
-
-        // --- Helper: Mask Item ---
-        const maskItem = useCallback((rawItem: any) => {
-            if (!rawItem) return rawItem;
-            if (ROLE_RANK[currentUser.role] <= 1 && rawItem.userId !== currentUser.id) {
-                let isSupport = rawItem.supportId === currentUser.id || rawItem.supportPersonId === currentUser.id;
-                
-                // If it's a revenue item and they are not directly the supportId, check if they are support for the same contract
-                if (!isSupport && rawItem.contractCode && rawItem.amountCollected !== undefined) {
-                    const projectRevs = revenues.filter(r => r.contractCode === rawItem.contractCode);
-                    isSupport = projectRevs.some(r => r.supportId === currentUser.id);
-                }
-
-                if (!isSupport) {
-                    return {
-                        ...rawItem,
-                        customerName: '***',
-                        phone: '***',
-                        companyName: '***',
-                        addressDetail: '***',
-                        notes: '***',
-                        contractCode: '***',
-                        email: '***',
-                        source: '***'
-                    };
-                }
-            }
-            return rawItem;
-        }, [currentUser, revenues]);
-
-        // Check Reminders
-        useEffect(() => {
-            if (loading || appointments.length === 0) return;
-
-            const check = () => {
-                const now = new Date();
-                const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; // YYYY-MM-DD
-                const currentHour = now.getHours();
-                
-                let newReminders: any[] = [];
-
-                // 1. 1 Hour Before Reminder
-                appointments.forEach(rawApp => {
-                    const app = maskItem(rawApp);
-                    if (!subordinates.some(u => u.id === app.userId)) return;
-                    
-                    const appDate = new Date(app.date);
-                    // Check if valid date
-                    if (isNaN(appDate.getTime())) return;
-
-                    const timeDiff = appDate.getTime() - now.getTime();
-                    const hoursDiff = timeDiff / (1000 * 60 * 60);
-
-                    // If within 1 hour window (0 < diff <= 1 hour)
-                    if (hoursDiff > 0 && hoursDiff <= 1) {
-                        newReminders.push({
-                            id: `reminder-${app.id}`,
-                            type: 'URGENT',
-                            title: 'Sắp diễn ra (1h)',
-                            message: `Cuộc hẹn với ${app.customerName} (${subordinates.find(u => u.id === app.userId)?.name})`,
-                            time: appDate.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}),
-                            details: app
-                        });
-                    }
-                });
-                
-                setReminders(newReminders);
-            };
-
-            check();
-            const interval = setInterval(check, 60000); // Check every minute
-            return () => clearInterval(interval);
-        }, [appointments, subordinates, loading, maskItem]);
-
-        useEffect(() => {
-            const fetchData = async () => {
-                setLoading(true);
-                try {
-                    const [users, depts, apps, consults, revs, monthTargets] = await Promise.all([
-                        storageService.getUsers(),
-                        storageService.getDepartments(),
-                        storageService.getAppointments(),
-                        storageService.getConsultations(),
-                        storageService.getRevenues(),
-                        (storageService as any).getTargetsByMonth(selectedMonth)
-                    ]);
-
-                    setDepartments(depts);
-                    setTargets(monthTargets);
-
-                    // Filter Subordinates
-                    // Logic similar to AdminDashboard but simpler: Get tree of users under current user
-                    let teamUsers: User[] = [];
-                    if (ROLE_RANK[currentUser.role] >= 5) { // Director/Regional
-                        teamUsers = users; // Simplified for high level
-                    } else if (ROLE_RANK[currentUser.role] <= 1) { // Employee
-                        // Employees only see themselves
-                        teamUsers = [currentUser];
-                    } else {
-                        // Find direct and indirect subordinates
-                        const managedDeptIds = new Set<string>();
-                        const collectDepts = (managerId: string) => {
-                            const directDepts = depts.filter(d => d.managerId === managerId);
-                            directDepts.forEach(d => {
-                                managedDeptIds.add(d.id);
-                                // Find sub-depts
-                                const subDepts = depts.filter(sub => sub.parentId === d.id);
-                                subDepts.forEach(sub => managedDeptIds.add(sub.id));
-                            });
-                        };
-                        collectDepts(currentUser.id);
-                        
-                        teamUsers = users.filter(u => 
-                            (u.departmentId && managedDeptIds.has(u.departmentId)) || 
-                            u.managerId === currentUser.id
-                        );
-                    }
-                    // Always include self? Maybe not for "Management" view, but usually yes.
-                    // Let's include self if they are part of the team stats.
-                    if (!teamUsers.find(u => u.id === currentUser.id)) {
-                        teamUsers.push(currentUser);
-                    }
-
-                    setSubordinates(teamUsers);
-                    setAppointments(apps);
-                    setConsultations(consults);
-                    setRevenues(revs);
-                    
-                } catch (error) {
-                    console.error("Error loading team data", error);
-                } finally {
-                    setLoading(false);
-                }
-            };
-            fetchData();
-        }, [currentUser, selectedMonth]);
-
-        // --- Helper: Vietnam Timezone Date ---
-        const getVNDate = useCallback((dateStr: string | undefined): Date | null => {
-            if (!dateStr) return null;
-            const d = new Date(dateStr);
-            if (isNaN(d.getTime())) return null;
-            // Convert to VN time string then parse back to preserve components relative to VN
-            const vnString = d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
-            return new Date(vnString);
-        }, []);
-
-        // --- Derived Data for Selected Month ---
-        const { monthStats, teamTotals } = useMemo(() => {
-            const [year, month] = selectedMonth.split('-').map(Number);
-            
-            // Get Today in VN Time
-            const now = new Date();
-            const vnNowString = now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
-            const vnNow = new Date(vnNowString);
-            const todayStr = `${vnNow.getFullYear()}-${String(vnNow.getMonth() + 1).padStart(2, '0')}-${String(vnNow.getDate()).padStart(2, '0')}`;
-            
-            // Helper to calculate revenue share
-            const getRevenueShare = (r: Revenue, uid: string) => {
-                const amount = Number(r.amountCollected) || 0;
-                
-                let effectiveSupportId = r.supportId;
-                if (!effectiveSupportId && r.contractCode) {
-                    const projectRevs = revenues.filter(rev => rev.contractCode === r.contractCode);
-                    const revWithSupport = projectRevs.find(rev => rev.supportId && String(rev.supportId).trim() !== '');
-                    if (revWithSupport) {
-                        effectiveSupportId = revWithSupport.supportId;
-                    }
-                }
-
-                const hasSupport = Boolean(effectiveSupportId && String(effectiveSupportId).trim() !== '');
-
-                if (r.userId === uid) {
-                    return hasSupport ? amount / 2 : amount;
-                }
-                if (effectiveSupportId === uid) {
-                    return amount / 2;
-                }
-                return 0;
-            };
-
-            const stats = subordinates.map((user, index) => {
-                // Filter data for this user and month using VN Time
-                const userApps = appointments.filter(a => {
-                    const d = getVNDate(a.reportedTime || a.date);
-                    return a.userId === user.id && d && d.getMonth() + 1 === month && d.getFullYear() === year;
-                });
-                const userCons = consultations.filter(c => {
-                    const d = getVNDate(c.date);
-                    return c.userId === user.id && d && d.getMonth() + 1 === month && d.getFullYear() === year;
-                });
-                const userRevs = revenues.filter(r => {
-                    const d = getVNDate(r.date);
-                    return d && d.getMonth() + 1 === month && d.getFullYear() === year;
-                });
-
-                const todayApps = userApps.filter(a => {
-                    const d = getVNDate(a.reportedTime || a.date);
-                    if (!d) return false;
-                    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                    return dStr === todayStr;
-                });
-                const todayCons = userCons.filter(c => {
-                    const d = getVNDate(c.date);
-                    if (!d) return false;
-                    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                    return dStr === todayStr;
-                });
-                const todayRevs = userRevs.filter(r => {
-                    const d = getVNDate(r.date);
-                    if (!d) return false;
-                    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                    return dStr === todayStr;
-                });
-
-                const totalRevenue = userRevs.reduce((sum, r) => sum + getRevenueShare(r, user.id), 0);
-                const todayRevenue = todayRevs.reduce((sum, r) => sum + getRevenueShare(r, user.id), 0);
-                
-                // Find target for this user in this month
-                const userTarget = targets.find(t => t.userId === user.id);
-                const targetRevenue = userTarget ? userTarget.targetRevenue : 0;
-
-                return {
-                    stt: index + 1,
-                    id: user.id,
-                    name: user.name,
-                    joinDate: user.joinDate ? new Date(user.joinDate).toLocaleDateString('vi-VN') : '-',
-                    role: ROLE_LABELS[user.role] || user.role,
-                    rawRole: user.role,
-                    target: targetRevenue,
-                    revenue: totalRevenue,
-                    todayRevenue: todayRevenue,
-                    appointments: userApps.length,
-                    todayAppointments: todayApps.length,
-                    consultations: userCons.length,
-                    todayConsultations: todayCons.length
-                };
-            });
-
-            const totals = stats.reduce((acc, curr) => ({
-                revenue: acc.revenue + curr.revenue,
-                target: acc.target + curr.target,
-                appointments: acc.appointments + curr.appointments,
-                consultations: acc.consultations + curr.consultations
-            }), { revenue: 0, target: 0, appointments: 0, consultations: 0 });
-
-            return { monthStats: stats, teamTotals: totals };
-        }, [subordinates, appointments, consultations, revenues, selectedMonth, targets, getVNDate]);
-
-        // --- Calendar Data (Results) ---
-        const calendarDays = useMemo(() => {
-            const [year, month] = selectedMonth.split('-').map(Number);
-            const daysInMonth = new Date(year, month, 0).getDate();
-            const days = [];
-
-            // Get Today in VN Time for highlighting
-            const now = new Date();
-            const vnNowString = now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
-            const vnNow = new Date(vnNowString);
-            const todayStr = `${vnNow.getFullYear()}-${String(vnNow.getMonth() + 1).padStart(2, '0')}-${String(vnNow.getDate()).padStart(2, '0')}`;
-
-            for (let i = 1; i <= daysInMonth; i++) {
-                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-                
-                // Filter events using VN Time
-                const checkDate = (itemDateStr: string | undefined) => {
-                    const d = getVNDate(itemDateStr);
-                    if (!d) return false;
-                    return d.getFullYear() === year && d.getMonth() + 1 === month && d.getDate() === i;
-                };
-
-                const dayApps = appointments.filter(a => checkDate(a.reportedTime || a.date) && subordinates.some(u => u.id === a.userId));
-                const dayCons = consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId));
-                const dayRevs = revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId || u.id === r.supportId));
-
-                days.push({
-                    date: dateStr,
-                    day: i,
-                    events: [
-                        ...dayApps.map(a => ({ eventType: 'APP', ...a, user: subordinates.find(u => u.id === a.userId)?.name })),
-                        ...dayCons.map(c => ({ eventType: 'CONS', ...c, user: subordinates.find(u => u.id === c.userId)?.name })),
-                        ...dayRevs.map(r => ({ eventType: 'REV', ...r, user: subordinates.find(u => u.id === r.userId)?.name }))
-                    ]
-                });
-            }
-            return days;
-        }, [selectedMonth, appointments, consultations, revenues, subordinates, getVNDate]);
-
-        // --- Calendar Data (Meetings) ---
-        const meetingCalendarDays = useMemo(() => {
-            const [year, month] = selectedMonth.split('-').map(Number);
-            const daysInMonth = new Date(year, month, 0).getDate();
-            const days = [];
-
-            for (let i = 1; i <= daysInMonth; i++) {
-                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-                
-                const checkDate = (itemDateStr: string | undefined) => {
-                    const d = getVNDate(itemDateStr);
-                    if (!d) return false;
-                    return d.getFullYear() === year && d.getMonth() + 1 === month && d.getDate() === i;
-                };
-
-                // Only filter Appointments based on 'date' (Appointment Time)
-                const dayApps = appointments.filter(a => checkDate(a.date) && subordinates.some(u => u.id === a.userId));
-                const dayCons = consultations.filter(c => checkDate(c.date) && (subordinates.some(u => u.id === c.userId) || (c.supportPersonId && subordinates.some(u => u.id === c.supportPersonId))));
-
-                days.push({
-                    date: dateStr,
-                    day: i,
-                    events: [
-                        ...dayApps.map(a => {
-                            const hasMet = consultations.some(c => c.phone === a.phone && c.date.substring(0, 10) === a.date.substring(0, 10));
-                            return { eventType: 'APP', ...a, user: subordinates.find(u => u.id === a.userId)?.name, isMet: hasMet };
-                        }),
-                        ...dayCons.map(c => ({ eventType: 'CONS', ...c, user: subordinates.find(u => u.id === c.userId)?.name }))
-                    ]
-                });
-            }
-            return days;
-        }, [selectedMonth, appointments, consultations, subordinates, getVNDate]);
-
-        // --- Helper: Render Tooltip Content ---
-        const renderTooltipContent = useCallback((rawItem: any, type: 'APP' | 'CONS' | 'REV') => {
-            const item = maskItem(rawItem);
-            const timeSource = (selectedCalendarType === 'MEETINGS' && type === 'APP') ? item.date : (item.reportedTime || item.date);
-            const dateObj = getVNDate(timeSource);
-            const timeStr = (dateObj && timeSource.length > 10) ? dateObj.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '--:--';
-
-            let colorClass = '';
-            let icon = null;
-            let title = '';
-            
-            if (type === 'APP') {
-                colorClass = 'blue';
-                icon = <CalendarIcon size={14} />;
-                title = 'CUỘC HẸN';
-            } else if (type === 'CONS') {
-                colorClass = 'purple';
-                icon = <Users size={14} />;
-                title = 'TƯ VẤN';
-            } else {
-                colorClass = 'green';
-                icon = <DollarSign size={14} />;
-                title = 'DOANH THU';
-            }
-
-            let content = null;
-            if (type === 'APP') {
-                content = (
-                    <div className="space-y-2 text-xs">
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
-                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
+                        <div className={`relative inline-block rounded-lg shadow-md border overflow-hidden min-w-[140px] max-w-[200px] z-10 transition-transform hover:scale-105 ${levelColor}`}>
+                             <div className={`px-2 py-1.5 text-center text-[10px] font-black uppercase tracking-wider ${headerColor}`}>{dept.level}</div>
+                             <div className="p-2 text-center">
+                                 <h4 className="font-bold text-xs uppercase mb-1 leading-tight">{dept.name}</h4>
+                                 {dept.managerName && <div className="text-[9px] opacity-80 mb-1">{dept.managerName}</div>}
+                                 <div className="inline-flex items-center gap-1 bg-black/10 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                     <Users size={10}/> {cumulativeCount}
+                                 </div>
+                             </div>
+                             {canEditStructure && (
+                                <div className="flex border-t border-black/5 divide-x divide-black/5">
+                                    <button onClick={() => { setEditingDeptId(dept.id); setFormDept(dept); setDeptModalOpen(true); }} className="flex-1 py-1 hover:bg-black/5 flex justify-center"><Edit size={12}/></button>
+                                    {dept.level !== DepartmentLevel.HQ ? (
+                                        <button onClick={() => handleDeleteDept(dept.id)} className="flex-1 py-1 hover:bg-red-50 hover:text-red-500 flex justify-center"><Trash2 size={12}/></button>
+                                    ) : (
+                                        <button onClick={() => handleRequestDeleteHQ(dept.id)} className="flex-1 py-1 hover:bg-red-50 hover:text-red-500 flex justify-center bg-red-50/50" title="Xóa Trụ sở (Admin only)"><ShieldAlert size={12}/></button>
+                                    )}
+                                </div>
+                             )}
                         </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><MapPin size={10}/> Đ/C:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.addressDetail || item.location}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
-                            <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
-                        </div>
-                    </div>
+                        {renderTreeNodes(dept.id)}
+                    </li>
                 );
-            } else if (type === 'CONS') {
-                content = (
-                    <div className="space-y-2 text-xs">
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
-                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><Phone size={10}/> SĐT:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.phone}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><Clock size={10}/> Giờ:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{timeStr}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><FileType size={10}/> Loại:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.type}</span>
-                        </div>
-                        {item.supportPersonName && (
-                            <div className="grid grid-cols-3 gap-2">
-                                <span className="text-gray-500 flex items-center gap-1"><Users size={10}/> Hỗ trợ:</span>
-                                <span className="col-span-2 font-medium text-blue-600">{item.supportPersonName}</span>
-                            </div>
-                        )}
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> Note:</span>
-                            <span className="col-span-2 text-gray-600 italic">{item.notes || 'Không có'}</span>
-                        </div>
-                    </div>
-                );
-            } else {
-                content = (
-                    <div className="space-y-2 text-xs">
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><UserIcon size={10}/> Khách:</span>
-                            <span className="col-span-2 font-bold text-gray-800">{item.customerName}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><FileText size={10}/> HĐ:</span>
-                            <span className="col-span-2 font-medium text-gray-800">{item.contractCode}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            <span className="text-gray-500 flex items-center gap-1"><DollarSign size={10}/> Tiền:</span>
-                            <span className="col-span-2 font-black text-green-600">
-                                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.amountCollected)}
-                            </span>
-                        </div>
-                    </div>
-                );
-            }
+            })}
+        </ul>
+    );
+  };
 
-            return (
-                <div className="w-72 bg-white/95 backdrop-blur-sm p-3 rounded-xl shadow-2xl border border-gray-200 z-[70] animate-fadeIn ring-1 ring-black/5">
-                    <h4 className={`font-bold text-${colorClass}-700 border-b border-${colorClass}-100 pb-2 mb-2 text-xs flex items-center gap-2 uppercase`}>
-                        {icon} CHI TIẾT {title}
-                    </h4>
-                    {content}
-                </div>
-            );
-        }, [maskItem]);
-
-        // --- Helper: Render Event Item for Day Detail ---
-        const renderEventItem = useCallback((rawItem: any, type: 'APP' | 'CONS' | 'REV') => {
-            const item = maskItem(rawItem);
-
-            const user = subordinates.find(u => u.id === item.userId);
-            
-            let colorClass = '';
-            let icon = null;
-            let title = '';
-            
-            if (type === 'APP') {
-                colorClass = 'blue';
-                icon = <CalendarIcon size={14} />;
-                title = 'CUỘC HẸN';
-            } else if (type === 'CONS') {
-                colorClass = 'purple';
-                icon = <Users size={14} />;
-                title = 'TƯ VẤN';
-            } else {
-                colorClass = 'green';
-                icon = <DollarSign size={14} />;
-                title = 'DOANH THU';
-            }
-
-            const handleMouseEnter = (e: React.MouseEvent) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const tooltipWidth = 280;
-                const tooltipHeight = 200; // Approx
-                
-                let x = rect.right + 10;
-                let y = rect.top;
-
-                // Check right edge
-                if (x + tooltipWidth > window.innerWidth) {
-                    x = rect.left - tooltipWidth - 10;
-                    
-                    // If switching to left makes it go off-screen, try bottom
-                    if (x < 10) {
-                        x = rect.left;
-                        y = rect.bottom + 5;
-                    }
-                }
-                
-                // Check bottom edge
-                if (y + tooltipHeight > window.innerHeight) {
-                    y = window.innerHeight - tooltipHeight - 10;
-                    // If moving up makes it go off-top, clamp to top
-                    if (y < 10) y = 10;
-                }
-
-                setTooltipData({ x, y, item, type });
-            };
-
-            // Format time using VN Timezone
-            // If in MEETINGS calendar and it's an appointment, strictly use 'date'
-            const timeSource = (selectedCalendarType === 'MEETINGS' && type === 'APP') ? item.date : (item.reportedTime || item.date);
-            const dateObj = getVNDate(timeSource);
-            const timeStr = (dateObj && timeSource.length > 10) ? dateObj.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '--:--';
-            const dateStr = dateObj ? dateObj.toLocaleDateString('vi-VN') : '--/--/----';
-
-            return (
-                <div 
-                    key={item.id} 
-                    onMouseEnter={handleMouseEnter}
-                    onMouseLeave={() => setTooltipData(null)}
-                    className={`group relative bg-${colorClass}-50 p-3 rounded-lg border border-${colorClass}-100 hover:shadow-md transition-all hover:border-${colorClass}-300 hover:bg-${colorClass}-50/80`}
-                >
-                    <div className="flex justify-between items-start gap-2">
-                        <div className="min-w-0 flex-1">
-                            <p className="font-bold text-gray-900 text-sm truncate" title={item.customerName}>{item.customerName}</p>
-                            <p className="text-xs text-gray-600 truncate" title={type === 'APP' ? item.companyName : type === 'CONS' ? item.type : item.contractCode}>
-                                {type === 'APP' ? item.companyName : type === 'CONS' ? item.type : item.contractCode}
-                            </p>
-                        </div>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                            {type === 'APP' && (() => {
-                                const hasMet = consultations.some(c => c.phone === rawItem.phone && c.date.substring(0, 10) === rawItem.date.substring(0, 10));
-                                let statusText: string = item.status;
-                                let badgeVariant: "success" | "warning" | "error" | "info" | "neutral" | "indigo" | "purple" = "info";
-                                let showOriginalStatus = false;
-                                
-                                if (hasMet) {
-                                    statusText = "Đã gặp";
-                                    badgeVariant = "success";
-                                    if (item.status !== AppointmentStatus.NEW) {
-                                        showOriginalStatus = true;
-                                    }
-                                } else if (item.status === AppointmentStatus.CANCELLED) {
-                                    statusText = "Đã hủy";
-                                    badgeVariant = "error";
-                                } else if (item.status === AppointmentStatus.POSTPONED) {
-                                    statusText = "Dời hẹn";
-                                    badgeVariant = "warning";
-                                } else {
-                                    statusText = "Chưa gặp";
-                                    badgeVariant = "neutral";
-                                    if (item.status !== AppointmentStatus.NEW) {
-                                        showOriginalStatus = true;
-                                    }
-                                }
-
-                                return (
-                                    <div className="flex flex-col items-end gap-1">
-                                        <Badge variant={badgeVariant}>{statusText}</Badge>
-                                        {showOriginalStatus && (
-                                            <span className="text-[10px] text-gray-500 italic">({item.status})</span>
-                                        )}
-                                    </div>
-                                );
-                            })()}
-                            {type === 'REV' && (
-                                <span className="text-xs font-black text-green-600">
-                                    {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.amountCollected)}
-                                </span>
-                            )}
-                            {user && (
-                                <button 
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedDateForDayDetail(null);
-                                        setSelectedUserForDetail(item.userId);
-                                    }}
-                                    className={`opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-bold text-${colorClass}-600 bg-white border border-${colorClass}-200 px-2 py-1 rounded-full hover:bg-${colorClass}-50 transition-all duration-200 shadow-sm transform translate-x-2 group-hover:translate-x-0`}
-                                    title="Xem hồ sơ nhân viên"
-                                >
-                                    <UserIcon size={12} />
-                                    Hồ sơ
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                    <div className={`mt-2 pt-2 border-t border-${colorClass}-100 flex justify-between items-center text-xs`}>
-                        <span className={`text-${colorClass}-700 font-medium flex items-center gap-1`}>
-                            <Users size={12}/> {user?.name || 'Hỗ trợ'}
-                        </span>
-                        <span className="text-gray-500 flex items-center gap-1">
-                            <Clock size={12}/>
-                            {type === 'REV' ? dateStr : timeStr}
-                        </span>
+  if (viewingUser) {
+    return (
+        <div className="space-y-6 animate-fadeIn">
+            <div className="flex items-center gap-6 bg-white p-6 rounded-2xl shadow-lg">
+                <Button onClick={() => setViewingUser(null)} variant="secondary" className="rounded-xl border border-gray-200">
+                    <ArrowLeft size={18} className="mr-2"/> QUAY LẠI DANH SÁCH
+                </Button>
+                <div>
+                    <h2 className="text-2xl font-black text-gray-800 uppercase">Hồ sơ: {viewingUser.name}</h2>
+                    <div className="flex gap-3 mt-1">
+                        <Badge variant="indigo">{ROLE_LABELS[viewingUser.role]}</Badge>
+                        <span className="text-sm font-bold text-green-600 tracking-tight">DOANH THU: {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateTotalRevenue(viewingUser))}</span>
                     </div>
                 </div>
-            );
-        }, [subordinates, getVNDate, selectedCalendarType, consultations, maskItem, renderTooltipContent]);
+            </div>
+            <EmployeeDashboard user={viewingUser} isViewOnly={false} />
+        </div>
+    );
+  }
 
-        if (loading) return <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
+  const allowedRoles = Object.values(UserRole).filter(r => ROLE_RANK[r] <= myRank);
+  
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-600" size={40}/></div>;
 
-        return (
-            <div className="space-y-4 animate-fadeIn pb-12 max-w-[1600px] mx-auto px-2 sm:px-4 md:px-6">
-                {/* Compact Header */}
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <Button onClick={onBack} variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full hover:bg-gray-100 text-gray-500">
-                            <ChevronLeft size={20} />
+  return (
+    <div className="space-y-4 animate-fadeIn pb-12 relative max-w-[1600px] mx-auto px-2 sm:px-4 md:px-6">
+      {undoState && (
+          <div className="fixed bottom-6 right-6 z-50 animate-bounce">
+              <div className="bg-red-600 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4">
+                  <AlertTriangle className="animate-pulse" />
+                  <div>
+                      <h4 className="font-bold uppercase text-sm">Đang xóa Trụ sở!</h4>
+                      <p className="text-xs opacity-90">Hành động sẽ thực hiện trong {undoCountDown}s</p>
+                  </div>
+                  <button onClick={handleUndoDelete} className="bg-white text-red-600 px-4 py-2 rounded-lg font-black text-xs hover:bg-red-50 transition-colors flex items-center gap-2"><RotateCcw size={14}/> HOÀN TÁC</button>
+              </div>
+          </div>
+      )}
+
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-100">
+        <div>
+            <h1 className="text-2xl sm:text-3xl font-black text-gray-900 uppercase tracking-tight leading-none">BẢNG ĐIỀU KHIỂN </h1>
+            <p className="text-sm text-gray-400 font-bold uppercase mt-1">Phạm vi: {ROLE_LABELS[manager.role]}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setMsgModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100 shadow-lg rounded-xl w-full sm:w-auto"><Send size={18} className="mr-2"/> THÔNG BÁO NHÓM</Button>
+            <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200 overflow-x-auto max-w-full">
+                <button onClick={() => setActiveTab('dashboard')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'dashboard' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Tổng quan</button>
+                <button onClick={() => setActiveTab('personal')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'personal' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Cá nhân</button>
+                <button onClick={() => setActiveTab('staff')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'staff' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Nhân sự</button>
+                <button onClick={() => setActiveTab('consults')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'consults' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Tư vấn</button>
+                <button onClick={() => setActiveTab('chat')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'chat' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Hộp thư</button>
+                <button onClick={() => setActiveTab('depts')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'depts' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Phòng ban</button>
+                <button onClick={() => setActiveTab('logs')} className={`px-3 sm:px-5 py-2 text-xs font-black uppercase rounded-lg transition-all whitespace-nowrap ${activeTab === 'logs' ? 'bg-white shadow-md text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Hoạt động</button>
+            </div>
+        </div>
+      </div>
+
+      {activeTab === 'personal' && (
+          <div className="animate-fadeIn">
+              <div className="mb-4 flex items-center gap-2 bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-800"><Briefcase size={20} /><span className="font-bold uppercase text-sm">Không gian làm việc cá nhân của Quản lý</span></div>
+              <EmployeeDashboard user={currentUser} isViewOnly={false} />
+          </div>
+      )}
+
+      {/* DASHBOARD TAB - KEEP EXISTING CONTENT */}
+      {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+             <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                <div className="flex items-center gap-2 mb-4">
+                    <UserCircle size={20} className="text-blue-600"/>
+                    <h3 className="text-sm font-black text-gray-800 uppercase tracking-widest">Chỉ số cá nhân (Self-Sales) - Tháng {new Date().getMonth() + 1}</h3>
+                    <div className="ml-auto">
+                        <Button 
+                            size="sm" 
+                            variant="outline" 
+                            onClick={() => {
+                                setEditingTarget(currentMonthTarget || { targetRevenue: 0, targetAppointment: 0, targetConsultation: 0 });
+                                setTargetModalOpen(true);
+                            }}
+                            className="h-7 text-[10px] px-2"
+                        >
+                            <Edit size={12} className="mr-1"/> Đặt mục tiêu
                         </Button>
-                        <div>
-                            <h1 className="text-lg font-bold text-gray-900 uppercase tracking-tight flex items-center gap-2">
-                                {ROLE_RANK[currentUser.role] <= 1 ? 'LỊCH LÀM VIỆC' : 'QUẢN TRỊ TEAM'}
-                                <span className="text-gray-300 font-light">|</span>
-                                <span className="text-blue-600">{currentTeamName}</span>
-                            </h1>
-                        </div>
                     </div>
-                    
-                    <div className="flex items-center gap-2">
-                        {/* Reminders Bell */}
-                        <div className="relative">
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-8 w-8 p-0 rounded-full hover:bg-gray-100 text-gray-500 relative"
-                                onClick={() => setShowReminders(!showReminders)}
-                            >
-                                <Bell size={20} />
-                                {reminders.length > 0 && (
-                                    <span className="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
-                                )}
-                            </Button>
-                            
-                            {/* Reminders Dropdown */}
-                            {showReminders && (
-                                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-fadeIn">
-                                    <div className="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-                                        <h3 className="font-bold text-gray-800 text-xs uppercase">Nhắc hẹn</h3>
-                                        <button onClick={() => setShowReminders(false)}><X size={14} className="text-gray-400 hover:text-gray-600"/></button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
+                         <div>
+                             <div className="text-xs font-bold text-gray-500 uppercase">Doanh thu tự bán</div>
+                             <div className="text-2xl font-black text-blue-600 mt-1">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(dashboardStats.personal.revenue)}</div>
+                             <div className="text-[10px] text-gray-400 mt-1">Mục tiêu: {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(currentMonthTarget?.targetRevenue || 0)}</div>
+                             <div className="w-full bg-blue-100 h-1 mt-2 rounded-full overflow-hidden">
+                                <div className="bg-blue-500 h-full" style={{width: `${currentMonthTarget?.targetRevenue ? Math.min((dashboardStats.personal.revenue / currentMonthTarget.targetRevenue) * 100, 100) : 0}%`}}></div>
+                             </div>
+                         </div>
+                         <div className="bg-white p-2 rounded-lg text-blue-500"><TrendingUp size={24}/></div>
+                    </div>
+                    <div className="bg-purple-50/50 p-4 rounded-xl border border-purple-100 flex items-center justify-between">
+                         <div>
+                             <div className="text-xs font-bold text-gray-500 uppercase">Cuộc hẹn cá nhân</div>
+                             <div className="text-2xl font-black text-purple-600 mt-1">{dashboardStats.personal.apps}</div>
+                             <div className="text-[10px] text-gray-400 mt-1">Mục tiêu: {currentMonthTarget?.targetAppointment || 0}</div>
+                             <div className="w-full bg-purple-100 h-1 mt-2 rounded-full overflow-hidden">
+                                <div className="bg-purple-500 h-full" style={{width: `${currentMonthTarget?.targetAppointment ? Math.min((dashboardStats.personal.apps / currentMonthTarget.targetAppointment) * 100, 100) : 0}%`}}></div>
+                             </div>
+                         </div>
+                         <div className="bg-white p-2 rounded-lg text-purple-500"><Calendar size={24}/></div>
+                    </div>
+                    <div className="bg-teal-50/50 p-4 rounded-xl border border-teal-100 flex items-center justify-between">
+                         <div>
+                             <div className="text-xs font-bold text-gray-500 uppercase">Cuộc tư vấn</div>
+                             <div className="text-2xl font-black text-teal-600 mt-1">{dashboardStats.personal.cons}</div>
+                             <div className="text-[10px] text-gray-400 mt-1">Mục tiêu: {currentMonthTarget?.targetConsultation || 0}</div>
+                             <div className="w-full bg-teal-100 h-1 mt-2 rounded-full overflow-hidden">
+                                <div className="bg-teal-500 h-full" style={{width: `${currentMonthTarget?.targetConsultation ? Math.min((dashboardStats.personal.cons / currentMonthTarget.targetConsultation) * 100, 100) : 0}%`}}></div>
+                             </div>
+                         </div>
+                         <div className="bg-white p-2 rounded-lg text-teal-500"><MessageSquare size={24}/></div>
+                    </div>
+                </div>
+             </div>
+
+             {/* Target Modal */}
+            <Modal isOpen={isTargetModalOpen} onClose={() => setTargetModalOpen(false)} title={`MỤC TIÊU CÁ NHÂN THÁNG ${new Date().getMonth() + 1}/${new Date().getFullYear()}`}>
+                <div className="space-y-4">
+                    <Input 
+                        label="Mục tiêu Doanh thu (VNĐ)" 
+                        type="number" 
+                        value={editingTarget.targetRevenue} 
+                        onChange={e => setEditingTarget({...editingTarget, targetRevenue: Number(e.target.value)})} 
+                    />
+                    <Input 
+                        label="Mục tiêu Cuộc hẹn" 
+                        type="number" 
+                        value={editingTarget.targetAppointment} 
+                        onChange={e => setEditingTarget({...editingTarget, targetAppointment: Number(e.target.value)})} 
+                    />
+                    <Input 
+                        label="Mục tiêu Tư vấn" 
+                        type="number" 
+                        value={editingTarget.targetConsultation} 
+                        onChange={e => setEditingTarget({...editingTarget, targetConsultation: Number(e.target.value)})} 
+                    />
+                    <div className="flex justify-end gap-3 pt-4">
+                        <Button variant="ghost" onClick={() => setTargetModalOpen(false)}>Hủy</Button>
+                        <Button onClick={handleSaveTarget}>Lưu mục tiêu</Button>
+                    </div>
+                </div>
+            </Modal>
+             
+             <div className="space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-2">
+                    <div className="flex items-center gap-2"><UsersIcon size={20} className="text-indigo-600"/><h3 className="text-sm font-black text-gray-800 uppercase tracking-widest">Hiệu suất Đội nhóm & Cấp dưới</h3></div>
+                    <div className="flex items-center gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-200">
+                        <span className="pl-3 text-xs font-bold text-gray-500">Từ:</span>
+                        <input type="date" className="text-xs font-bold text-gray-700 bg-transparent border-none focus:ring-0 p-1" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                        <span className="text-gray-300">|</span>
+                        <span className="text-xs font-bold text-gray-500">Đến:</span>
+                        <input type="date" className="text-xs font-bold text-gray-700 bg-transparent border-none focus:ring-0 p-1" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                    </div>
+                </div>
+                
+                <div className="bg-white p-5 rounded-2xl shadow-md border border-gray-100">
+                    <div className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-400 uppercase tracking-widest"><Filter size={14} /> Bộ lọc dữ liệu phân cấp</div>
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <Select label="Khu vực" options={[{value: '', label: '-- Tất cả --'}, ...regionOptions.map(d => ({value: d.id, label: d.name}))]} value={filterRegion} onChange={e => setFilterRegion(e.target.value)} />
+                        <Select label="Group" options={[{value: '', label: '-- Tất cả --'}, ...groupOptions.map(d => ({value: d.id, label: d.name}))]} value={filterGroup} onChange={e => setFilterGroup(e.target.value)} />
+                        <Select label="Phòng" options={[{value: '', label: '-- Tất cả --'}, ...deptOptions.map(d => ({value: d.id, label: d.name}))]} value={filterDept} onChange={e => setFilterDept(e.target.value)} />
+                        <Select label="Nhóm" options={[{value: '', label: '-- Tất cả --'}, ...teamOptions.map(d => ({value: d.id, label: d.name}))]} value={filterTeam} onChange={e => setFilterTeam(e.target.value)} />
+                        <Select label="Nhân viên" options={[{value: '', label: '-- Tất cả --'}, ...structuredUsers.filter(u => u._isManager === false).map(u => ({value: u.id, label: u.name}))]} value={filterUser} onChange={e => setFilterUser(e.target.value)} />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <Card className="border-t-4 border-t-indigo-500">
+                        <div className="flex items-center justify-between">
+                            <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nhân sự cấp dưới (Lọc)</p><h3 className="text-4xl font-black text-gray-800">{dashboardStats.team.count}</h3></div>
+                            <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600"><Users size={28}/></div>
+                        </div>
+                    </Card>
+                    <Card className="border-t-4 border-t-green-500">
+                        <div className="flex items-center justify-between">
+                            <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">DT THỰC NHẬN (Theo thời gian)</p><h3 className="text-2xl font-black text-green-600">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(dashboardStats.team.revenue)}</h3></div>
+                            <div className="bg-green-50 p-3 rounded-2xl text-green-600"><TrendingUp size={28}/></div>
+                        </div>
+                    </Card>
+                    <Card className="border-t-4 border-t-orange-500">
+                        <div className="flex items-center justify-between">
+                            <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Cuộc hẹn (Theo thời gian)</p><h3 className="text-4xl font-black text-gray-800">{dashboardStats.team.apps}</h3></div>
+                            <div className="bg-orange-50 p-3 rounded-2xl text-orange-600"><Calendar size={28}/></div>
+                        </div>
+                    </Card>
+                    <Card className="border-t-4 border-t-teal-500">
+                        <div className="flex items-center justify-between">
+                            <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Cuộc tư vấn (Theo thời gian)</p><h3 className="text-4xl font-black text-gray-800">{dashboardStats.team.cons}</h3></div>
+                            <div className="bg-teal-50 p-3 rounded-2xl text-teal-600"><MessageSquare size={28}/></div>
+                        </div>
+                    </Card>
+                </div>
+
+                <Card title="Phân tích tăng trưởng (Theo thời gian)">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="lg:col-span-2 bg-gray-50/50 p-6 rounded-2xl border border-gray-100 min-w-0">
+                            <div className="h-72">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={dashboardStats.chartData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700}} />
+                                        <YAxis axisLine={false} tickLine={false} tickFormatter={(v) => `${v/1000000}M`} tick={{fontSize: 10}} />
+                                        <Tooltip cursor={{fill: '#f1f5f9'}} formatter={(v: any) => [new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v), 'Doanh thu']} />
+                                        <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
+                                            {dashboardStats.chartData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={index === dashboardStats.chartData.length - 1 ? '#3b82f6' : '#94a3b8'} />
+                                            ))}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-4">
+                            <div className="bg-blue-900 text-white p-6 rounded-2xl shadow-xl space-y-4">
+                                    <div className="flex items-center gap-2"><LayoutGrid size={18} className="text-blue-400"/><span className="text-xs font-black uppercase tracking-widest">Báo cáo tự động</span></div>
+                                    <p className="text-sm font-medium italic opacity-90 leading-relaxed text-blue-50">"{dashboardStats.conclusion}"</p>
+                            </div>
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex-1">
+                                <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-50">
+                                    <div className="flex items-center gap-2">
+                                        <div className="bg-yellow-100 p-1.5 rounded-lg text-yellow-600"><Trophy size={16}/></div>
+                                        <span className="text-xs font-black uppercase text-gray-700">Top 10 Xuất Sắc</span>
                                     </div>
-                                    <div className="max-h-[300px] overflow-y-auto">
-                                        {reminders.length === 0 ? (
-                                            <div className="p-4 text-center text-gray-400 text-xs italic">Không có nhắc nhở nào</div>
-                                        ) : (
-                                            reminders.map((rem, idx) => (
-                                                <div key={idx} className="p-3 border-b border-gray-50 hover:bg-blue-50 transition-colors">
-                                                    <div className="flex items-start gap-3">
-                                                        <div className={`p-2 rounded-full ${rem.type === 'URGENT' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                                                            <Clock size={16} />
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-xs font-bold text-gray-800">{rem.title}</p>
-                                                            <p className="text-[10px] text-gray-500 mt-0.5">{rem.message}</p>
-                                                            <p className="text-[10px] font-bold text-blue-600 mt-1">{rem.time}</p>
-                                                        </div>
+                                    <div className="flex bg-gray-100 rounded-lg p-0.5">
+                                        <button onClick={() => setTop10Tab('REGION')} className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${top10Tab === 'REGION' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Khu vực</button>
+                                        <button onClick={() => setTop10Tab('COMPANY')} className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${top10Tab === 'COMPANY' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Toàn ty</button>
+                                    </div>
+                                </div>
+                                <div className="space-y-3 overflow-y-auto max-h-[200px] pr-2">
+                                    {(top10Tab === 'REGION' ? dashboardStats.topEmployeesLocal : dashboardStats.topEmployeesGlobal).length === 0 ? (
+                                        <p className="text-xs text-gray-400 text-center italic py-4">Chưa có phát sinh doanh thu</p>
+                                    ) : (
+                                        (top10Tab === 'REGION' ? dashboardStats.topEmployeesLocal : dashboardStats.topEmployeesGlobal).map((c, idx) => (
+                                            <div key={idx} className="flex justify-between items-center text-xs group hover:bg-gray-50 p-1 rounded-md transition-colors">
+                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                    <span className={`w-5 h-5 flex items-center justify-center rounded-full font-bold ${idx < 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>{idx + 1}</span>
+                                                    <div className="flex flex-col">
+                                                        <span className="font-bold text-gray-700 truncate max-w-[120px]" title={c.name}>{c.name}</span>
+                                                        <span className="text-[9px] text-gray-400 font-medium">{c.id}</span>
                                                     </div>
                                                 </div>
-                                            ))
-                                        )}
-                                    </div>
+                                                <span className="font-bold text-blue-600">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(c.value)}</span>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
-                            )}
-                        </div>
-
-                        <div className="flex items-center bg-gray-50 rounded-lg border border-gray-200 px-2 py-1">
-                            <CalendarIcon size={14} className="text-gray-500 mr-2"/>
-                            <input 
-                                type="month" 
-                                value={selectedMonth} 
-                                onChange={(e) => setSelectedMonth(e.target.value)}
-                                className="bg-transparent border-none text-sm font-medium text-gray-700 focus:ring-0 outline-none p-0"
-                            />
-                        </div>
-                        <Button variant="outline" size="sm" onClick={() => setShowColumnModal(true)} className="px-2 h-8">
-                            <Settings size={16} />
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Summary Stats - Compact Row */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-                            <DollarSign size={24} />
-                        </div>
-                        <div className="overflow-hidden">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase truncate">Doanh Thu</p>
-                            <p className="text-sm font-black text-gray-900 truncate">
-                                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(teamTotals.revenue)}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-full bg-green-50 flex items-center justify-center text-green-600 shrink-0">
-                            <Target size={24} />
-                        </div>
-                        <div className="overflow-hidden">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase truncate">Cam Kết</p>
-                            <p className="text-sm font-black text-gray-900 truncate">
-                                {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(teamTotals.target)}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
-                            <CalendarIcon size={24} />
-                        </div>
-                        <div className="overflow-hidden">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase truncate">Cuộc Hẹn</p>
-                            <p className="text-sm font-black text-gray-900 truncate">{teamTotals.appointments}</p>
-                        </div>
-                    </div>
-
-                    <div className="bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-full bg-purple-50 flex items-center justify-center text-purple-600 shrink-0">
-                            <Users size={24} />
-                        </div>
-                        <div className="overflow-hidden">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase truncate">Tư Vấn</p>
-                            <p className="text-sm font-black text-gray-900 truncate">{teamTotals.consultations}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex flex-col gap-6">
-                    {/* Statistics Table - Full width */}
-                    <div className="flex flex-col">
-                        <Card className="p-0 overflow-hidden border border-gray-200 shadow-sm flex-1">
-                            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 uppercase">
-                                    <Users size={16} className="text-blue-600"/> 
-                                    Nhân sự & Hiệu suất
-                                </h3>
                             </div>
-                            <div className="overflow-x-auto max-h-[600px] overflow-y-auto relative custom-scrollbar">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-gray-100 text-gray-600 font-bold uppercase text-[10px] sticky top-0 z-10 shadow-sm">
-                                        <tr>
-                                            {visibleColumns.stt && <th className="px-3 py-2 text-center w-10 bg-gray-100">STT</th>}
-                                            {visibleColumns.id && <th className="px-3 py-2 bg-gray-100">Mã NV</th>}
-                                            {visibleColumns.name && <th className="px-3 py-2 bg-gray-100">Họ Tên</th>}
-                                            {visibleColumns.joinDate && <th className="px-3 py-2 whitespace-nowrap bg-gray-100">Ngày vào</th>}
-                                            {visibleColumns.role && <th className="px-3 py-2 whitespace-nowrap bg-gray-100">Chức vụ</th>}
-                                            {visibleColumns.target && <th className="px-3 py-2 text-right whitespace-nowrap bg-gray-100">Cam kết</th>}
-                                            {visibleColumns.revenue && <th className="px-3 py-2 text-right whitespace-nowrap bg-gray-100">Doanh thu</th>}
-                                            {visibleColumns.appointments && <th className="px-3 py-2 text-center whitespace-nowrap bg-gray-100">Hẹn</th>}
-                                            {visibleColumns.consultations && <th className="px-3 py-2 text-center whitespace-nowrap bg-gray-100">Tư vấn</th>}
-                                            {visibleColumns.todayRevenue && <th className="px-3 py-2 text-right whitespace-nowrap bg-green-50 text-green-700 border-l border-green-100">DT Hôm nay</th>}
-                                            {visibleColumns.todayAppointments && <th className="px-3 py-2 text-center whitespace-nowrap bg-blue-50 text-blue-700">Hẹn HN</th>}
-                                            {visibleColumns.todayConsultations && <th className="px-3 py-2 text-center whitespace-nowrap bg-purple-50 text-purple-700">TV HN</th>}
+                        </div>
+                    </div>
+                </Card>
+
+                 <Card className="mt-6 border-t-4 border-t-indigo-600">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-indigo-100 p-2.5 rounded-xl text-indigo-600 shadow-sm"><Activity size={24}/></div>
+                            <div>
+                                <h3 className="text-lg font-black text-gray-800 uppercase tracking-tight">NHÂN SỰ & HIỆU SUẤT</h3>
+                                <p className="text-xs text-gray-400 font-bold uppercase">Báo cáo chi tiết theo thời gian thực</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="bg-gray-50/50 text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                                    <th className="p-4 text-center w-12 font-black">STT</th>
+                                    <th className="p-4 text-left font-black">MÃ NV</th>
+                                    <th className="p-4 text-left font-black">HỌ TÊN</th>
+                                    <th className="p-4 text-right font-black text-gray-400">CAM KẾT</th>
+                                    <th className="p-4 text-right font-black text-blue-600">DT THỰC NHẬN</th>
+                                    <th className="p-4 text-center font-black text-purple-600">HẸN</th>
+                                    <th className="p-4 text-center font-black text-teal-600">TƯ VẤN</th>
+                                    <th className="p-4 text-right font-black border-l border-gray-100 bg-green-50/30 text-green-600">DT HÔM NAY</th>
+                                    <th className="p-4 text-center font-black bg-gray-50/30">HẸN HN</th>
+                                    <th className="p-4 text-center font-black bg-gray-50/30">TV HN</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50 bg-white">
+                                {dashboardStats.fullEmployeeStats.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={10} className="p-8 text-center text-gray-400 italic">Chưa có dữ liệu nhân sự phù hợp với bộ lọc</td>
+                                    </tr>
+                                ) : (
+                                    dashboardStats.fullEmployeeStats.map((emp, idx) => (
+                                        <tr key={emp.id} className="hover:bg-indigo-50/30 transition-colors group">
+                                            <td className="p-3 text-center font-bold text-gray-400 group-hover:text-indigo-500">{idx + 1}</td>
+                                            <td className="p-3 font-mono text-gray-500 font-medium">{emp.id}</td>
+                                            <td className="p-3 font-bold text-gray-700 group-hover:text-indigo-700">{emp.name}</td>
+                                            <td className="p-3 text-right text-gray-400 font-medium">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(emp.targetRevenue)}</td>
+                                            <td className="p-3 text-right font-black text-blue-600 text-sm">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(emp.revenue)}</td>
+                                            <td className="p-3 text-center font-bold text-purple-600">{emp.apps}</td>
+                                            <td className="p-3 text-center font-bold text-teal-600">{emp.cons}</td>
+                                            <td className="p-3 text-right font-black text-green-600 border-l border-gray-50 bg-green-50/10">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(emp.revenueToday)}</td>
+                                            <td className="p-3 text-center font-bold text-gray-600 bg-gray-50/10">{emp.appsToday}</td>
+                                            <td className="p-3 text-center font-bold text-gray-600 bg-gray-50/10">{emp.consToday}</td>
                                         </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {monthStats.map((stat) => (
-                                            <tr 
-                                                key={stat.id} 
-                                                onClick={() => {
-                                                    if (editingTargetId !== stat.id) {
-                                                        setSelectedUserForDetail(stat.id);
-                                                    }
-                                                }}
-                                                className={`hover:bg-blue-50/50 transition-colors cursor-pointer text-xs ${selectedUserForDetail === stat.id ? 'bg-blue-50' : ''}`}
-                                            >
-                                                {visibleColumns.stt && <td className="px-3 py-2.5 text-center font-medium text-gray-500">{stat.stt}</td>}
-                                                {visibleColumns.id && <td className="px-3 py-2.5 font-mono text-gray-500">{stat.id}</td>}
-                                                {visibleColumns.name && <td className="px-3 py-2.5 font-bold text-gray-800 whitespace-nowrap">{stat.name}</td>}
-                                                {visibleColumns.joinDate && <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{stat.joinDate}</td>}
-                                                {visibleColumns.role && <td className="px-3 py-2.5 whitespace-nowrap">
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-800 border border-gray-200">
-                                                        {stat.role}
-                                                    </span>
-                                                </td>}
-                                                {visibleColumns.target && <td className="px-3 py-2.5 text-right font-mono text-gray-600 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                                    {editingTargetId === stat.id ? (
-                                                        <div className="flex items-center gap-1 justify-end">
-                                                            <input 
-                                                                type="text" 
-                                                                value={tempTargetValue}
-                                                                onChange={(e) => {
-                                                                    // Format as currency while typing
-                                                                    const val = e.target.value.replace(/\D/g, '');
-                                                                    setTempTargetValue(new Intl.NumberFormat('vi-VN').format(parseInt(val || '0')));
-                                                                }}
-                                                                className="w-24 text-right text-xs border border-blue-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                                                autoFocus
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === 'Enter') handleSaveTarget(stat.id);
-                                                                    if (e.key === 'Escape') setEditingTargetId(null);
-                                                                }}
-                                                            />
-                                                            <button onClick={() => handleSaveTarget(stat.id)} className="text-green-600 hover:text-green-800"><Eye size={14}/></button>
-                                                            <button onClick={() => setEditingTargetId(null)} className="text-red-500 hover:text-red-700"><X size={14}/></button>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="group flex items-center justify-end gap-2">
-                                                            <span>{new Intl.NumberFormat('vi-VN').format(stat.target)}</span>
-                                                            <button 
-                                                                onClick={() => {
-                                                                    setEditingTargetId(stat.id);
-                                                                    setTempTargetValue(new Intl.NumberFormat('vi-VN').format(stat.target));
-                                                                }}
-                                                                className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-opacity"
-                                                            >
-                                                                <FileText size={12} />
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </td>}
-                                                {visibleColumns.revenue && <td className="px-3 py-2.5 text-right font-bold text-gray-800 font-mono whitespace-nowrap">
-                                                    {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stat.revenue)}
-                                                </td>}
-                                                {visibleColumns.appointments && <td className="px-3 py-2.5 text-center">
-                                                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.appointments > 0 ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                        {stat.appointments}
-                                                    </span>
-                                                </td>}
-                                                {visibleColumns.consultations && <td className="px-3 py-2.5 text-center">
-                                                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.consultations > 0 ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                        {stat.consultations}
-                                                    </span>
-                                                </td>}
-                                                {visibleColumns.todayRevenue && <td className="px-3 py-2.5 text-right font-bold text-green-600 font-mono whitespace-nowrap bg-green-50/30 border-l border-green-50">
-                                                    {stat.todayRevenue > 0 ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stat.todayRevenue) : '-'}
-                                                </td>}
-                                                {visibleColumns.todayAppointments && <td className="px-3 py-2.5 text-center bg-blue-50/30">
-                                                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.todayAppointments > 0 ? 'bg-blue-100 text-blue-700' : 'text-gray-300'}`}>
-                                                        {stat.todayAppointments > 0 ? stat.todayAppointments : '-'}
-                                                    </span>
-                                                </td>}
-                                                {visibleColumns.todayConsultations && <td className="px-3 py-2.5 text-center bg-purple-50/30">
-                                                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-[10px] ${stat.todayConsultations > 0 ? 'bg-purple-100 text-purple-700' : 'text-gray-300'}`}>
-                                                        {stat.todayConsultations > 0 ? stat.todayConsultations : '-'}
-                                                    </span>
-                                                </td>}
-                                            </tr>
-                                        ))}
-                                        {monthStats.length === 0 && (
-                                            <tr>
-                                                <td colSpan={Object.values(visibleColumns).filter(Boolean).length} className="px-6 py-8 text-center text-gray-400 italic">
-                                                    Chưa có dữ liệu nhân sự
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </Card>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
                     </div>
+                </Card>
+             </div>
+          </div>
+      )}
 
-                    {/* Calendar View - 2 Columns */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Results Calendar */}
-                        <Card className="p-4 border border-gray-200 shadow-sm">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 uppercase">
-                                    <CalendarIcon size={16} className="text-blue-600"/> 
-                                    Kết quả mỗi ngày
-                                </h3>
-                                <div className="flex gap-2 text-[10px] font-medium">
-                                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Hẹn</div>
-                                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500"></span> Tư vấn</div>
-                                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Doanh thu</div>
+      {activeTab === 'chat' && (
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 h-[calc(100vh-200px)] min-h-[500px] flex overflow-hidden relative">
+              {/* User List - Hidden on mobile if chat selected */}
+              <div className={`w-full md:w-1/3 border-r border-gray-100 bg-gray-50 flex flex-col absolute md:relative z-10 h-full transition-transform duration-300 ${selectedChatUser ? '-translate-x-full md:translate-x-0' : 'translate-x-0'}`}>
+                  <div className="p-4 font-black text-gray-800 border-b uppercase text-sm tracking-tight flex items-center gap-2"><MessageSquare size={16} className="text-blue-500"/> Danh sách tin nhắn</div>
+                  <div className="p-4 border-b bg-white space-y-3">
+                      <div className="relative">
+                          <input className="w-full border-gray-200 rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 transition-all" placeholder="Tìm tên hoặc mã nhân viên..." value={chatSearchTerm} onChange={e => setChatSearchTerm(e.target.value)} />
+                          <Search size={16} className="absolute left-3.5 top-2.5 text-gray-400" />
+                      </div>
+                      <select className="w-full border-gray-200 rounded-xl p-2 text-xs font-bold text-gray-600 bg-gray-50" value={chatFilterRole} onChange={e => setChatFilterRole(e.target.value)}>
+                          <option value="">-- Tất cả chức vụ --</option>
+                          {Object.values(UserRole).map(r => (<option key={r} value={r}>{ROLE_LABELS[r]}</option>))}
+                      </select>
+                  </div>
+                  <div className="flex-1 overflow-y-auto">
+                      {chatUsers.length === 0 ? (
+                          <div className="p-4 text-center text-gray-400 text-xs italic">
+                              {chatSearchTerm ? 'Không tìm thấy nhân viên phù hợp.' : 'Chưa có tin nhắn gần đây.'}
+                          </div>
+                      ) : (
+                          chatUsers.map(u => (
+                              <div key={u.id} onClick={() => setSelectedChatUser(u.id)} className={`p-4 cursor-pointer border-b border-gray-100 hover:bg-white transition-all flex items-center gap-3 ${selectedChatUser === u.id ? 'bg-white border-l-4 border-l-blue-600' : ''}`}>
+                                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs shrink-0">{u.name.substring(0, 1)}</div>
+                                  <div className="flex-1 overflow-hidden">
+                                      <div className="font-black text-sm text-gray-800 truncate uppercase">{u.name}</div>
+                                      <div className="text-[10px] text-gray-400 font-bold uppercase">{ROLE_LABELS[u.role]}</div>
+                                  </div>
+                                  <ChevronRight size={16} className="text-gray-300 md:hidden"/>
+                              </div>
+                          ))
+                      )}
+                  </div>
+              </div>
+              
+              {/* Chat Window - Full width on mobile when selected */}
+              <div className={`w-full md:w-2/3 flex flex-col bg-[#f8fafc] absolute md:relative h-full transition-transform duration-300 ${selectedChatUser ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}>
+                  {selectedChatUser ? (
+                      <>
+                        <div className="p-4 border-b flex justify-between items-center bg-white shadow-sm z-10">
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setSelectedChatUser(null)} className="md:hidden p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                                <div>
+                                    <span className="font-black text-gray-800 uppercase tracking-tight block leading-tight">Hội thoại: {allUsers.find(u => u.id === selectedChatUser)?.name}</span>
+                                    <span className="text-[10px] text-gray-400 md:hidden">Nhấn quay lại để xem danh sách</span>
                                 </div>
                             </div>
-
-                            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
-                                {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(day => (
-                                    <div key={day} className="bg-gray-50 p-1 text-center text-[10px] font-bold text-gray-500 uppercase">
-                                        {day}
+                            <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6">
+                            {currentConversation.map(msg => (
+                                <div key={msg.id} className={`flex ${msg.senderId === manager.id ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[85%] md:max-w-[80%] rounded-2xl p-3 md:p-4 shadow-sm ${msg.senderId === manager.id ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none border border-gray-100'}`}>
+                                        <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap break-words">{msg.content}</div>
+                                        <div className={`text-[9px] mt-2 font-black uppercase tracking-widest ${msg.senderId === manager.id ? 'text-blue-200 text-right' : 'text-gray-400'}`}>{new Date(msg.timestamp).toLocaleString('vi-VN')}</div>
                                     </div>
-                                ))}
-                                
-                                {/* Padding for start of month */}
-                                {Array.from({ length: new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1, 1).getDay() }).map((_, i) => (
-                                    <div key={`pad-${i}`} className="bg-white min-h-[60px]"></div>
-                                ))}
-
-                                {calendarDays.map((day) => {
-                                    // Filter events if a user is selected
-                                    const displayEvents = selectedUserForDetail 
-                                        ? day.events.filter((e: any) => e.userId === selectedUserForDetail || e.supportId === selectedUserForDetail)
-                                        : day.events;
-                                    
-                                    const today = new Date();
-                                    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                                    const isToday = todayStr === day.date;
-
-                                    return (
-                                        <div 
-                                            key={day.date} 
-                                            onClick={() => {
-                                                setSelectedDateForDayDetail(day.date);
-                                                setSelectedCalendarType('RESULTS');
-                                            }}
-                                            className={`bg-white min-h-[100px] p-1 hover:bg-gray-50 transition-colors group relative cursor-pointer flex flex-col ${isToday ? 'bg-blue-50/30' : ''}`}
-                                        >
-                                            <div className="text-right mb-1">
-                                                <span className={`inline-flex items-center justify-center w-6 h-6 text-[11px] font-bold rounded-full ${isToday ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}>
-                                                    {day.day}
-                                                </span>
-                                            </div>
-                                            <div className="flex flex-col gap-1 mt-auto px-1 pb-1">
-                                                {displayEvents.filter((e: any) => e.eventType === 'APP').length > 0 && (
-                                                    <div className="bg-blue-500 text-white text-[11px] font-bold py-1.5 rounded-md text-center shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.eventType === 'APP').length} Cuộc hẹn`}>
-                                                        {displayEvents.filter((e: any) => e.eventType === 'APP').length} Hẹn
-                                                    </div>
-                                                )}
-                                                {displayEvents.filter((e: any) => e.eventType === 'CONS').length > 0 && (
-                                                    <div className="bg-purple-500 text-white text-[11px] font-bold py-1.5 rounded-md text-center shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.eventType === 'CONS').length} Tư vấn`}>
-                                                        {displayEvents.filter((e: any) => e.eventType === 'CONS').length} Tư vấn
-                                                    </div>
-                                                )}
-                                                {displayEvents.filter((e: any) => e.eventType === 'REV').length > 0 && (
-                                                    <div className="bg-green-500 text-white text-[11px] font-bold py-1.5 rounded-md text-center shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.eventType === 'REV').length} Doanh thu`}>
-                                                        {displayEvents.filter((e: any) => e.eventType === 'REV').length} DT
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            <div className="mt-3 text-xs text-gray-500 text-center italic">
-                                * Chọn ngày hoặc nhân viên để xem chi tiết
-                            </div>
-                        </Card>
-
-                        {/* Meeting Calendar */}
-                        <Card className="p-4 border border-gray-200 shadow-sm">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 uppercase">
-                                    <CalendarIcon size={16} className="text-orange-600"/> 
-                                    Lịch gặp khách hàng
-                                </h3>
-                                <div className="flex gap-2 text-[10px] font-medium">
-                                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Hẹn</div>
                                 </div>
-                            </div>
+                            ))}
+                            <div ref={chatEndRef}></div>
+                        </div>
+                        <div className="p-3 md:p-4 bg-white border-t border-gray-100">
+                             <div className="flex gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
+                                  <input className="flex-1 bg-transparent border-none px-3 md:px-4 py-2 outline-none text-sm font-medium" placeholder="Nhập tin nhắn trả lời..." value={adminChatInput} onChange={e => setAdminChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdminReply()} />
+                                  <button onClick={handleAdminReply} className="bg-blue-600 text-white p-2 md:p-3 rounded-xl hover:bg-blue-700 active:scale-95 transition-all shadow-lg"><Send size={18}/></button>
+                             </div>
+                        </div>
+                      </>
+                  ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
+                          <MessageSquare size={64} className="mb-4 opacity-10"/>
+                          <p className="font-black text-xs uppercase tracking-widest">Chọn nhân sự từ danh sách bên trái để bắt đầu trao đổi</p>
+                      </div>
+                  )}
+              </div>
+          </div>
+      )}
 
-                            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
-                                {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(day => (
-                                    <div key={day} className="bg-gray-50 p-1 text-center text-[10px] font-bold text-gray-500 uppercase">
-                                        {day}
+      {/* CONSULTATIONS TAB */}
+      {activeTab === 'consults' && (
+          <Card title="Danh sách tư vấn chi tiết">
+              <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+                  <table className="w-full text-xs">
+                      <thead>
+                          <tr className="bg-gray-50/50 text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                              <th className="p-4 text-left font-black">Thời gian</th>
+                              <th className="p-4 text-left font-black">Khách hàng</th>
+                              <th className="p-4 text-left font-black">Loại</th>
+                              <th className="p-4 text-left font-black">Nhân viên chính</th>
+                              <th className="p-4 text-left font-black">Người hỗ trợ</th>
+                              <th className="p-4 text-left font-black">Trạng thái</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 bg-white">
+                          {dashboardStats.filteredConsultations
+                              .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                              .map((c: any) => (
+                                  <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                                      <td className="p-4 font-bold text-gray-600">
+                                          {new Date(c.date).toLocaleDateString('vi-VN')} {c.time || ''}
+                                      </td>
+                                      <td className="p-4">
+                                          <div className="font-bold text-gray-800">{c.customerName}</div>
+                                          <div className="text-[10px] text-gray-400">{c.phone}</div>
+                                      </td>
+                                      <td className="p-4">
+                                          <Badge variant="indigo">{c.supportType}</Badge>
+                                          <Badge variant="success" className="ml-1">{c.type}</Badge>
+                                      </td>
+                                      <td className="p-4 font-medium text-gray-700">
+                                          {allUsers.find(u => u.id === c.userId)?.name || c.userId}
+                                      </td>
+                                      <td className="p-4 font-medium text-blue-600">
+                                          {c.supportPersonName || (c.supportPersonId ? allUsers.find(u => u.id === c.supportPersonId)?.name : '---')}
+                                      </td>
+                                      <td className="p-4">
+                                          <Badge variant="neutral">Hoàn thành</Badge>
+                                      </td>
+                                  </tr>
+                              ))}
+                      </tbody>
+                  </table>
+              </div>
+          </Card>
+      )}
+
+      {/* ACTIVITY LOGS TAB */}
+      {activeTab === 'logs' && (
+          <Card title="Nhật ký hoạt động cá nhân (200 bản ghi gần nhất)">
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto relative">
+                  <table className="w-full text-sm text-left">
+                      <thead className="text-xs text-gray-500 uppercase bg-gray-50 font-bold sticky top-0 z-10 shadow-sm">
+                          <tr>
+                              <th className="px-6 py-3 bg-gray-50">Thời gian</th>
+                              <th className="px-6 py-3 bg-gray-50">Người thực hiện</th>
+                              <th className="px-6 py-3 bg-gray-50">Thao tác</th>
+                              <th className="px-6 py-3 bg-gray-50">Đối tượng</th>
+                              <th className="px-6 py-3 bg-gray-50">Chi tiết</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                          {activities.length === 0 ? (
+                              <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400 italic">Chưa có dữ liệu hoạt động</td></tr>
+                          ) : (
+                              activities.map(log => (
+                                  <tr key={log.id} className="hover:bg-gray-50">
+                                      <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-gray-500">
+                                          {new Date(log.timestamp).toLocaleString('vi-VN')}
+                                      </td>
+                                      <td className="px-6 py-4">
+                                          <div className="font-bold text-gray-900">{log.actorName}</div>
+                                          <div className="text-[10px] text-gray-400">{log.actorId}</div>
+                                      </td>
+                                      <td className="px-6 py-4">
+                                          <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                                              log.action === 'TẠO' ? 'bg-green-100 text-green-700' :
+                                              log.action === 'CẬP NHẬT' ? 'bg-blue-100 text-blue-700' :
+                                              'bg-red-100 text-red-700'
+                                          }`}>
+                                              {log.action}
+                                          </span>
+                                      </td>
+                                      <td className="px-6 py-4 text-xs font-bold text-gray-600 uppercase">
+                                          {log.targetType}
+                                      </td>
+                                      <td className="px-6 py-4 text-sm text-gray-600">
+                                          {log.description}
+                                      </td>
+                                  </tr>
+                              ))
+                          )}
+                      </tbody>
+                  </table>
+              </div>
+          </Card>
+      )}
+
+      {/* STAFF TAB */}
+      {activeTab === 'staff' && (
+        <Card title="Quản lý đội ngũ nhân sự">
+          <div className="mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
+             <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+                <div className="w-full md:w-64"><Input placeholder="Tìm nhanh nhân viên..." value={chatSearchTerm} onChange={e => setChatSearchTerm(e.target.value)} /></div>
+                <div className="w-full md:w-64"><Select value={filterRole} onChange={e => setFilterRole(e.target.value)} options={[{value: '', label: '-- Lọc theo chức vụ --'}, ...Object.values(UserRole).map(r => ({value: r, label: ROLE_LABELS[r]}))]} /></div>
+                <Button onClick={openAddUser} className="rounded-xl w-full md:w-auto px-6 font-black uppercase tracking-tight shadow-md">+ Tạo tài khoản mới</Button>
+             </div>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-[600px] overflow-y-auto relative">
+            <table className="min-w-full divide-y divide-gray-200 text-xs">
+              <thead className="bg-gray-100 text-gray-500 font-black uppercase tracking-widest sticky top-0 z-10 shadow-sm">
+                <tr>
+                  <th className="px-6 py-4 text-left w-[40%] bg-gray-100">Họ tên & Cấu trúc</th>
+                  <th className="px-6 py-4 text-left bg-gray-100">Mã NV</th>
+                  <th className="px-6 py-4 text-left bg-gray-100">Đơn vị quản lý</th>
+                  <th className="px-6 py-4 text-right bg-gray-100">Doanh thu (Lifetime)</th>
+                  <th className="px-6 py-4 text-right bg-gray-100">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-100">
+                {structuredUsers
+                    .filter(u => chatSearchTerm ? u.name.toLowerCase().includes(chatSearchTerm.toLowerCase()) || u.id.toLowerCase().includes(chatSearchTerm.toLowerCase()) : true)
+                    .filter(u => filterRole ? u.role === filterRole : true)
+                    .map(user => {
+                        let rowBg = "bg-white";
+                        if (user._depth === 0) rowBg = "bg-blue-50/30"; else if (user._depth === 1) rowBg = "bg-gray-50/50";
+                        return (
+                        <tr key={user.id} className={`${rowBg} hover:bg-blue-50 transition-colors`}>
+                            <td className="px-6 py-4">
+                                <div className="flex items-center relative" style={{ paddingLeft: `${user._depth * 28}px` }}>
+                                    {user._depth > 0 && <div className="absolute left-0 top-1/2 -translate-y-1/2 border-l border-b border-gray-300 w-4 h-full" style={{ left: `${(user._depth - 1) * 28 + 12}px`, height: '120%', top: '-50%' }}></div>}
+                                    {user._depth > 0 && <div className="absolute border-b border-gray-300 w-4 h-0" style={{ left: `${(user._depth - 1) * 28 + 12}px` }}></div>}
+                                    <div className="flex items-center gap-3 relative z-10">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shadow-sm ${user._depth === 0 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>{user.name.charAt(0)}</div>
+                                        <div><div className={`font-bold uppercase leading-tight ${user._depth === 0 ? 'text-blue-800 text-sm' : 'text-gray-800'}`}>{user.name}</div><div className="flex items-center gap-2 mt-1"><Badge variant="neutral" className="text-[9px]">{ROLE_LABELS[user.role]}</Badge>{user.phone && <span className="text-[10px] text-gray-400">{user.phone}</span>}</div></div>
                                     </div>
-                                ))}
-                                
-                                {/* Padding for start of month */}
-                                {Array.from({ length: new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1, 1).getDay() }).map((_, i) => (
-                                    <div key={`pad-${i}`} className="bg-white min-h-[60px]"></div>
-                                ))}
+                                </div>
+                            </td>
+                            <td className="px-6 py-4 font-black text-gray-900 uppercase tracking-tight">{user.id}</td>
+                            <td className="px-6 py-4"><div className="flex flex-col"><span className="text-[10px] font-bold text-indigo-600 uppercase">{user._deptName}</span>{user._isManager && <span className={`text-[9px] font-bold w-fit px-1 rounded uppercase mt-0.5 ${user.role === UserRole.GROUP_MANAGER ? 'text-teal-700 bg-teal-50' : user.role === UserRole.TEAM_LEADER ? 'text-blue-700 bg-blue-50' : 'text-orange-500 bg-orange-50'}`}>QUẢN LÝ</span>}</div></td>
+                            <td className="px-6 py-4 text-right font-black text-green-600 text-sm">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateTotalRevenue(user))}</td>
+                            <td className="px-6 py-4 text-right"><div className="flex justify-end gap-2"><button onClick={() => setViewingUser(user)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Xem báo cáo"><Eye size={18}/></button><button onClick={() => openEditUser(user)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={18}/></button><button onClick={() => handleDeleteUser(user.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18}/></button></div></td>
+                        </tr>
+                        )
+                    })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
-                                {meetingCalendarDays.map((day) => {
-                                    // Filter events if a user is selected
-                                    const displayEvents = selectedUserForDetail 
-                                        ? day.events.filter((e: any) => e.userId === selectedUserForDetail || e.supportId === selectedUserForDetail)
-                                        : day.events;
-                                    
-                                    const today = new Date();
-                                    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                                    const isToday = todayStr === day.date;
-
-                                    return (
-                                        <div 
-                                            key={day.date} 
-                                            onClick={() => {
-                                                setSelectedDateForDayDetail(day.date);
-                                                setSelectedCalendarType('MEETINGS');
-                                            }}
-                                            className={`bg-white min-h-[80px] p-1 hover:bg-gray-50 transition-colors group relative cursor-pointer ${isToday ? 'bg-blue-50/30' : ''}`}
-                                        >
-                                            <div className="text-right mb-1">
-                                                <span className={`inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded-full ${isToday ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}>
-                                                    {day.day}
-                                                </span>
-                                            </div>
-                                            <div className="flex flex-col gap-1 mt-1 px-0.5">
-                                                {displayEvents.filter((e: any) => e.eventType === 'APP').length > 0 && (() => {
-                                                    const apps = displayEvents.filter((e: any) => e.eventType === 'APP');
-                                                    const metApps = apps.filter((a: any) => a.isMet);
-                                                    return (
-                                                        <div className="bg-blue-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${apps.length} Cuộc hẹn`}>
-                                                            {apps.length} Hẹn {metApps.length > 0 ? `(Đã gặp ${metApps.length})` : ''}
-                                                        </div>
-                                                    );
-                                                })()}
-                                                {displayEvents.filter((e: any) => e.eventType === 'CONS').length > 0 && (
-                                                    <div className="bg-purple-500 text-white text-[10px] font-bold px-2 py-1 rounded text-center leading-none shadow-sm w-full" title={`${displayEvents.filter((e: any) => e.eventType === 'CONS').length} Tư vấn`}>
-                                                        {displayEvents.filter((e: any) => e.eventType === 'CONS').length} Tư vấn
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+      {activeTab === 'depts' && (
+          <div className="bg-gray-200/50 p-6 rounded-2xl overflow-x-auto min-h-[600px] border border-gray-200">
+             <div className="mb-6 flex justify-between items-center bg-white p-4 rounded-xl shadow-sm">
+                 <div className="text-xs text-gray-500 italic flex items-center gap-2"><CornerDownRight size={14}/>Sơ đồ tổ chức hiển thị theo cấp bậc phân nhánh</div>
+                 {canEditStructure && <Button onClick={openAddDept} className="rounded-xl shadow-lg font-black uppercase px-6">+ Thành lập đơn vị thủ công</Button>}
+             </div>
+             <div className="flex justify-center min-w-max pb-12 tree">
+                {renderTreeNodes(null)}
+             </div>
+             {/* Orphan/Error Depts Cleanup Section */}
+             {canEditStructure && orphanDepts.length > 0 && (
+                <div className="mt-8 p-4 bg-red-50 border border-red-100 rounded-xl">
+                    <h3 className="text-sm font-bold text-red-600 uppercase mb-3 flex items-center gap-2"><AlertOctagon size={16}/> Đơn vị lỗi / Chưa phân cấp ({orphanDepts.length})</h3>
+                    <p className="text-xs text-gray-500 mb-4">Các đơn vị này không có cấp bậc hoặc không có đơn vị cấp trên. Bạn có thể xóa chúng nếu không cần thiết.</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {orphanDepts.map(d => (
+                            <div key={d.id} className="bg-white p-3 rounded-lg border border-red-100 shadow-sm flex justify-between items-center group hover:bg-red-50 transition-colors">
+                                <div>
+                                    <div className="text-xs font-bold text-gray-700">{d.name || '(Không tên)'}</div>
+                                    <div className="text-[10px] text-gray-400 font-medium">{d.id}</div>
+                                    <div className="text-[9px] text-red-400 italic">{d.level || 'Undefined level'}</div>
+                                </div>
+                                <button onClick={() => handleDeleteDept(d.id)} className="text-red-300 hover:text-red-600 p-1.5 rounded bg-red-50"><Trash2 size={14}/></button>
                             </div>
-                            <div className="mt-3 text-xs text-gray-500 text-center italic">
-                                * Chọn ngày để xem chi tiết
-                            </div>
-                        </Card>
-                    </div>
-                </div>
-
-                {/* Column Customization Modal */}
-                <Modal isOpen={showColumnModal} onClose={() => setShowColumnModal(false)} title="TÙY CHỈNH CỘT HIỂN THỊ">
-                    <div className="p-1 grid grid-cols-2 gap-4">
-                        {Object.entries(visibleColumns).map(([key, value]) => (
-                            <label key={key} className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    checked={value} 
-                                    onChange={() => setVisibleColumns(prev => ({ ...prev, [key]: !prev[key as keyof typeof visibleColumns] }))}
-                                    className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
-                                />
-                                <span className="text-sm font-medium text-gray-700 uppercase">
-                                    {key === 'stt' && 'Số thứ tự'}
-                                    {key === 'id' && 'Mã nhân viên'}
-                                    {key === 'name' && 'Họ tên'}
-                                    {key === 'joinDate' && 'Ngày vào'}
-                                    {key === 'role' && 'Chức vụ'}
-                                    {key === 'target' && 'Cam kết'}
-                                    {key === 'revenue' && 'Doanh thu'}
-                                    {key === 'todayRevenue' && 'Doanh thu hôm nay'}
-                                    {key === 'appointments' && 'Cuộc hẹn'}
-                                    {key === 'todayAppointments' && 'Cuộc hẹn hôm nay'}
-                                    {key === 'consultations' && 'Tư vấn'}
-                                    {key === 'todayConsultations' && 'Tư vấn hôm nay'}
-                                </span>
-                            </label>
                         ))}
                     </div>
-                    <div className="mt-6 flex justify-end">
-                        <Button onClick={() => setShowColumnModal(false)}>Đóng</Button>
-                    </div>
-                </Modal>
+                </div>
+             )}
+          </div>
+      )}
 
-                {/* User Detail Modal */}
-                {selectedUserForDetail && (
-                    <Modal isOpen={!!selectedUserForDetail} onClose={() => setSelectedUserForDetail(null)} title="CHI TIẾT HOẠT ĐỘNG" size="lg">
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between border-b pb-4">
-                                <div>
-                                    <h4 className="text-lg font-bold text-gray-900">{subordinates.find(u => u.id === selectedUserForDetail)?.name}</h4>
-                                    <p className="text-sm text-gray-500">Mã NV: {selectedUserForDetail}</p>
-                                </div>
-                                <Button variant="ghost" size="sm" onClick={() => setSelectedUserForDetail(null)}>
-                                    <X size={20} />
-                                </Button>
-                            </div>
+      {/* Modals Retained As Is ... */}
+      <Modal isOpen={isMsgModalOpen} onClose={() => setMsgModalOpen(false)} title="GỬI THÔNG BÁO TỚI ĐỘI NGŨ">
+          <div className="space-y-4 p-1">
+              <Select label="Đối tượng nhận tin" options={[{value: 'ALL', label: 'Tất cả nhân viên cấp dưới'}, {value: 'DEPT', label: 'Theo phòng ban (Kèm cấp dưới)'}, {value: 'USER', label: 'Cá nhân cụ thể'}]} value={msgTargetType} onChange={(e: any) => setMsgTargetType(e.target.value)} />
+              {msgTargetType === 'DEPT' && (<Combobox label="Chọn phòng ban (Có hỗ trợ tìm kiếm)" placeholder="Nhập tên phòng hoặc mã..." options={departments.map(d => `${d.name} [${d.id}]`)} value={msgTargetId ? `${departments.find(d => d.id === msgTargetId)?.name} [${msgTargetId}]` : ''} onChange={(val) => { const matches = val.match(/\[(.*?)\]$/); if (matches && matches[1]) setMsgTargetId(matches[1]); else setMsgTargetId(''); }} />)}
+              {msgTargetType === 'USER' && (<Select label="Chọn nhân viên" options={mySubordinates.filter(u => u.id !== manager.id).map(u => ({value: u.id, label: u.name}))} value={msgTargetId} onChange={e => setMsgTargetId(e.target.value)} />)}
+              <div className="w-full"><label className="block text-sm font-black uppercase tracking-widest text-gray-500 mb-1">Nội dung thông báo</label><textarea className="w-full border border-gray-200 rounded-xl p-4 h-40 focus:ring-2 focus:ring-blue-500 transition-all font-medium text-sm" value={msgContent} onChange={e => setMsgContent(e.target.value)} placeholder="Nhập chỉ thị hoặc thông báo tại đây..."></textarea></div>
+              <div className="flex justify-end gap-3 pt-4 border-t mt-6"><Button variant="ghost" onClick={() => setMsgModalOpen(false)}>HỦY BỎ</Button><Button onClick={handleSendMessage} className="px-8 shadow-lg shadow-blue-100 uppercase font-black">XÁC NHẬN GỬI</Button></div>
+          </div>
+      </Modal>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Appointments List */}
-                                <div>
-                                    <h5 className="font-bold text-blue-700 mb-3 flex items-center gap-2">
-                                        <span className="w-2 h-2 rounded-full bg-blue-600"></span> CUỘC HẸN ({selectedMonth})
-                                    </h5>
-                                    <div className="bg-gray-50 rounded-lg p-3 max-h-[300px] overflow-y-auto space-y-2">
-                                        {appointments.filter(a => {
-                                            const d = getVNDate(a.reportedTime || a.date);
-                                            if (!d) return false;
-                                            const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                                            return a.userId === selectedUserForDetail && mStr === selectedMonth;
-                                        }).length === 0 ? (
-                                            <p className="text-xs text-gray-400 italic text-center py-4">Không có cuộc hẹn nào</p>
-                                        ) : (
-                                            appointments.filter(a => {
-                                                const d = getVNDate(a.reportedTime || a.date);
-                                                if (!d) return false;
-                                                const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                                                return a.userId === selectedUserForDetail && mStr === selectedMonth;
-                                            })
-                                            .sort((a,b) => {
-                                                const da = getVNDate(a.reportedTime || a.date);
-                                                const db = getVNDate(b.reportedTime || b.date);
-                                                return (da?.getTime() || 0) - (db?.getTime() || 0);
-                                            })
-                                            .map(rawApp => {
-                                                const app = maskItem(rawApp);
-                                                const timeSource = app.reportedTime || app.date;
-                                                const d = getVNDate(timeSource);
-                                                const dateStr = d ? d.toLocaleDateString('vi-VN') : '';
-                                                const timeStr = (d && timeSource.length > 10) ? d.toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : '';
-                                                return (
-                                                    <div key={app.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-xs">
-                                                        <div className="font-bold text-gray-800">{dateStr} {timeStr}</div>
-                                                        <div className="text-blue-600 font-medium">{app.customerName}</div>
-                                                        <div className="text-gray-500">{app.companyName}</div>
-                                                        <div className="mt-1 flex justify-between items-center">
-                                                            <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px]">{app.status}</span>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })
-                                        )}
-                                    </div>
-                                </div>
+      <Modal isOpen={isUserModalOpen} onClose={() => setUserModalOpen(false)} title={editingUserId ? "CẬP NHẬT TÀI KHOẢN" : "CẤP TÀI KHOẢN MỚI"}>
+        <div className="space-y-4 p-1">
+            <div className="grid grid-cols-2 gap-4"><Input label="Mã nhân viên" value={formUser.id || ''} onChange={e => setFormUser({...formUser, id: e.target.value.toUpperCase()})} disabled={!!editingUserId} placeholder="NV..." /><Input label="Họ và tên" value={formUser.name || ''} onChange={e => setFormUser({...formUser, name: e.target.value})} placeholder="Nguyễn Văn A" /></div>
+            <div className="grid grid-cols-2 gap-4"><Input label="Mật khẩu" value={formUser.password || ''} onChange={e => setFormUser({...formUser, password: e.target.value})} /><Input label="Số điện thoại" value={formUser.phone || ''} onChange={e => setFormUser({...formUser, phone: e.target.value})} /></div>
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
+                <Select label="Vai trò hệ thống" value={formUser.role} onChange={e => setFormUser({...formUser, role: e.target.value as UserRole})} options={allowedRoles.map(role => ({value: role, label: ROLE_LABELS[role]}))} />
+                
+                {formUser.role === UserRole.EMPLOYEE ? (
+                    <Select 
+                        label="Trực thuộc đơn vị (Phòng/Nhóm)" 
+                        value={formUser.departmentId || ''} 
+                        onChange={e => setFormUser({...formUser, departmentId: e.target.value})} 
+                        options={[
+                            {value: '', label: '-- Chọn đơn vị --'}, 
+                            ...departments
+                                .filter(d => d.level && d.name) // Filter out invalid/ghost departments
+                                .map(d => ({value: d.id, label: `${d.name} (${d.level})`}))
+                        ]} 
+                    />
+                ) : (
+                    <div className="space-y-4 animate-fadeIn">
+                        <div className="flex items-center gap-2 mb-2"><GitMerge size={16} className="text-blue-500"/><span className="text-xs font-black uppercase text-gray-500">Cấu hình Đơn vị quản lý mới</span></div>
+                        
+                        {!editingUserId && (
+                            <>
+                                <Input 
+                                    label={`Tên đơn vị quản lý (Để trống sẽ tự động lấy tên: "Cấp bậc + Tên")`} 
+                                    placeholder={`Ví dụ: Nhóm ${formUser.name || '...'}`} 
+                                    value={formUser.newDeptName || ''} 
+                                    onChange={e => setFormUser({...formUser, newDeptName: e.target.value})}
+                                />
+                                {formUser.role !== UserRole.REGIONAL_MANAGER && (
+                                    <Combobox 
+                                        label={`Trực thuộc đơn vị cấp trên (Bắt buộc)`} 
+                                        placeholder="Nhập tên hoặc mã đơn vị..."
+                                        value={formUser.newDeptParentId ? `${departments.find(d => d.id === formUser.newDeptParentId)?.name} [${formUser.newDeptParentId}]` : ''} 
+                                        onChange={(val) => {
+                                            const matches = val.match(/\[(.*?)\]$/);
+                                            if (matches && matches[1]) {
+                                                setFormUser({...formUser, newDeptParentId: matches[1]});
+                                            } else {
+                                                // If user clears input or types invalid format, consider clearing ID or handle gracefully
+                                                setFormUser({...formUser, newDeptParentId: ''});
+                                            }
+                                        }}
+                                        options={departments.filter(d => d.level !== DepartmentLevel.TEAM).map(d => `${d.name} [${d.id}]`)} 
+                                    />
+                                )}
+                            </>
+                        )}
 
-                                {/* Consultations List */}
-                                <div>
-                                    <h5 className="font-bold text-purple-700 mb-3 flex items-center gap-2">
-                                        <span className="w-2 h-2 rounded-full bg-purple-600"></span> TƯ VẤN ({selectedMonth})
-                                    </h5>
-                                    <div className="bg-gray-50 rounded-lg p-3 max-h-[300px] overflow-y-auto space-y-2">
-                                        {consultations.filter(c => {
-                                            const d = getVNDate(c.date);
-                                            if (!d) return false;
-                                            const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                                            return c.userId === selectedUserForDetail && mStr === selectedMonth;
-                                        }).length === 0 ? (
-                                            <p className="text-xs text-gray-400 italic text-center py-4">Không có phiếu tư vấn nào</p>
-                                        ) : (
-                                            consultations.filter(c => {
-                                                const d = getVNDate(c.date);
-                                                if (!d) return false;
-                                                const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                                                return c.userId === selectedUserForDetail && mStr === selectedMonth;
-                                            })
-                                            .sort((a,b) => {
-                                                const da = getVNDate(a.date);
-                                                const db = getVNDate(b.date);
-                                                return (da?.getTime() || 0) - (db?.getTime() || 0);
-                                            })
-                                            .map(rawCons => {
-                                                const cons = maskItem(rawCons);
-                                                const d = getVNDate(cons.date);
-                                                const dateStr = d ? d.toLocaleDateString('vi-VN') : '';
-                                                return (
-                                                    <div key={cons.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-xs">
-                                                        <div className="font-bold text-gray-800">{dateStr}</div>
-                                                        <div className="text-purple-600 font-medium">{cons.customerName}</div>
-                                                        <div className="text-gray-500">{cons.type}</div>
-                                                        <div className="mt-1 text-[10px] text-gray-400 truncate">{cons.notes}</div>
-                                                    </div>
-                                                );
-                                            })
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </Modal>
-                )}
-
-                {/* Day Detail Modal */}
-                {selectedDateForDayDetail && (
-                    <Modal isOpen={!!selectedDateForDayDetail} onClose={() => setSelectedDateForDayDetail(null)} title={`LỊCH NGÀY ${new Date(selectedDateForDayDetail).toLocaleDateString('vi-VN')}`} size="lg">
-                        <div className="pb-4">
-                            {(() => {
-                                const checkDate = (itemDateStr: string | undefined) => {
-                                    const d = getVNDate(itemDateStr);
-                                    if (!d) return false;
-                                    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                                    return dStr === selectedDateForDayDetail;
-                                };
-
-                                const dayApps = appointments.filter(a => {
-                                    // For MEETINGS calendar, strictly use 'date' (Appointment Time)
-                                    // For RESULTS calendar, use 'reportedTime' (Reported Time) falling back to 'date'
-                                    const dateToCheck = selectedCalendarType === 'MEETINGS' ? a.date : (a.reportedTime || a.date);
-                                    return checkDate(dateToCheck) && subordinates.some(u => u.id === a.userId);
-                                });
-                                
-                                // Only show Consultations and Revenue for RESULTS calendar
-                                // For MEETINGS, also show Consultations now
-                                const dayCons = (selectedCalendarType === 'RESULTS' || selectedCalendarType === 'MEETINGS')
-                                    ? consultations.filter(c => checkDate(c.date) && subordinates.some(u => u.id === c.userId))
-                                    : [];
-                                    
-                                const dayRevs = selectedCalendarType === 'RESULTS'
-                                    ? revenues.filter(r => checkDate(r.date) && subordinates.some(u => u.id === r.userId || u.id === r.supportId))
-                                    : [];
-                                
-                                if (dayApps.length === 0 && dayCons.length === 0 && dayRevs.length === 0) {
-                                    return <p className="text-center text-gray-400 italic py-8">Không có hoạt động nào trong ngày này</p>;
-                                }
-
-                                const activeCount = [dayApps.length > 0, dayCons.length > 0, dayRevs.length > 0].filter(Boolean).length;
-                                const gridColsClass = activeCount === 1 ? 'grid-cols-1' : activeCount === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
-
-                                return (
-                                    <div className={`grid ${gridColsClass} gap-4`}>
-                                        {dayApps.length > 0 && (
-                                            <div>
-                                                <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-2 text-sm uppercase">
-                                                    <span className="w-2 h-2 rounded-full bg-blue-600"></span> Cuộc hẹn ({dayApps.length})
-                                                </h5>
-                                                <div className="space-y-2">
-                                                    {dayApps.map(app => renderEventItem(app, 'APP'))}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {dayCons.length > 0 && (
-                                            <div>
-                                                <h5 className="font-bold text-purple-700 mb-2 flex items-center gap-2 text-sm uppercase">
-                                                    <span className="w-2 h-2 rounded-full bg-purple-600"></span> Tư vấn ({dayCons.length})
-                                                </h5>
-                                                <div className="space-y-2">
-                                                    {dayCons.map(cons => renderEventItem(cons, 'CONS'))}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {dayRevs.length > 0 && (
-                                            <div>
-                                                <h5 className="font-bold text-green-700 mb-2 flex items-center gap-2 text-sm uppercase">
-                                                    <span className="w-2 h-2 rounded-full bg-green-600"></span> Doanh thu ({dayRevs.length})
-                                                </h5>
-                                                <div className="space-y-2">
-                                                    {dayRevs.map(rev => renderEventItem(rev, 'REV'))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })()}
-                        </div>
-                    </Modal>
-                )}
-
-                {/* Global Tooltip Portal */}
-                {tooltipData && (
-                    <div 
-                        className="fixed z-[70] pointer-events-none"
-                        style={{ left: tooltipData.x, top: tooltipData.y }}
-                    >
-                        {renderTooltipContent(tooltipData.item, tooltipData.type)}
+                        {editingUserId && (<div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700"><b>Lưu ý:</b> Đang chỉnh sửa tài khoản quản lý. Nếu muốn thay đổi đơn vị quản lý, vui lòng sử dụng tab "Phòng ban".</div>)}
                     </div>
                 )}
             </div>
-        );
-    };
+            <div className="grid grid-cols-2 gap-4"><Input label="Ngày gia nhập" type="date" value={formUser.joinDate || ''} onChange={e => setFormUser({...formUser, joinDate: e.target.value})} /><Input label="Doanh thu ban đầu" type="number" value={formUser.initialRevenue || 0} onChange={e => setFormUser({...formUser, initialRevenue: Number(e.target.value)})} /></div>
+            <div className="flex justify-end gap-3 pt-6 border-t mt-4"><Button variant="ghost" onClick={() => setUserModalOpen(false)}>HỦY</Button><Button onClick={handleSubmitUser} className="px-8 font-black uppercase">LƯU THÔNG TIN</Button></div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={isDeptModalOpen} onClose={() => setDeptModalOpen(false)} title={editingDeptId ? "SỬA ĐƠN VỊ" : "THÀNH LẬP ĐƠN VỊ MỚI"}>
+          <div className="space-y-4 p-1">
+              <Input label="Mã Đơn vị" value={formDept.id || ''} onChange={e => setFormDept({...formDept, id: e.target.value.toUpperCase()})} placeholder="VD: KV01, GRP02..." />
+              {editingDeptId && editingDeptId !== formDept.id && (<div className="text-[10px] text-red-500 font-bold bg-red-50 p-2 rounded">Lưu ý: Bạn đang thay đổi Mã đơn vị. Hành động này sẽ xóa đơn vị cũ và tạo đơn vị mới.</div>)}
+              <Input label="Tên Đơn vị" value={formDept.name || ''} onChange={e => setFormDept({...formDept, name: e.target.value})} placeholder="Tên hiển thị..." />
+              <Select label="Cấp bậc" value={formDept.level} onChange={e => { const newLevel = e.target.value as DepartmentLevel; setFormDept({...formDept, level: newLevel, parentId: ''}); }} options={Object.values(DepartmentLevel).map(v => ({value: v, label: v}))} />
+              {formDept.level && formDept.level !== DepartmentLevel.HQ && (<Select label={`Trực thuộc đơn vị (${getAvailableParents(formDept.level).length > 0 ? 'Chọn bên dưới' : 'Chưa có cấp trên phù hợp'})`} value={formDept.parentId || ''} onChange={e => setFormDept({...formDept, parentId: e.target.value})} options={[{value: '', label: '-- Chọn đơn vị cấp trên --'}, ...getAvailableParents(formDept.level).map(d => ({value: d.id, label: d.name}))]} />)}
+              <div className="grid grid-cols-2 gap-4"><div className="relative"><Input label="Mã Quản lý (Mã NV)" value={formDept.managerId || ''} onChange={e => setFormDept({...formDept, managerId: e.target.value.toUpperCase()})} onBlur={() => { const user = allUsers.find(u => u.id === formDept.managerId); if (user) { setFormDept(prev => ({...prev, managerName: user.name})); } else if (formDept.managerId) { alert("Không tìm thấy nhân viên với mã này!"); setFormDept(prev => ({...prev, managerName: ''})); } }} placeholder="Nhập mã NV..." />{formDept.managerName && <span className="absolute right-2 top-9 text-green-600"><CheckCircle size={16}/></span>}</div><Input label="Tên Quản lý (Tự động)" value={formDept.managerName || ''} disabled className="bg-gray-100 text-gray-500 font-bold" /></div>
+              <div className="flex justify-end gap-3 pt-6 border-t mt-4"><Button variant="ghost" onClick={() => setDeptModalOpen(false)}>HỦY</Button><Button onClick={handleSubmitDept} className="px-8 font-black uppercase">LƯU CẤU TRÚC</Button></div>
+          </div>
+      </Modal>
+    </div>
+  );
+};
